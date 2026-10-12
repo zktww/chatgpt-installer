@@ -4,6 +4,8 @@ Windows 上一键下载并安装 **官方 ChatGPT 桌面版** 的开源小工具
 
 ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)
 
+![应用截图](docs/screenshot-home.png)
+
 ## 它做什么
 
 1. **环境检测** — 系统版本、CPU 架构、磁盘空间、官方 CDN 连通性，装之前先把坑排掉
