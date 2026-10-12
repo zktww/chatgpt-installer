@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::constants::*;
 use crate::errors::AppError;
@@ -231,11 +231,7 @@ pub fn resolve_target(app: &AppHandle) -> Result<(String, PathBuf), AppError> {
         )
     })?;
     let filename = msix_filename_for_arch(arch).unwrap();
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| AppError::new("IO_ERROR", "无法确定数据目录", e.to_string()))?;
-    fs::create_dir_all(&dir)
-        .map_err(|e| AppError::new("IO_ERROR", "无法创建数据目录", e.to_string()))?;
+    // 下载目录与安装/校验共用同一生效目录（提权透传 > 用户自定义 > 默认）
+    let dir = crate::cmds::pkg_dir(app)?;
     Ok((url.to_string(), dir.join(filename)))
 }

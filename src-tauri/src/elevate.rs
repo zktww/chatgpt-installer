@@ -2,6 +2,15 @@
 //!
 //! 策略：下载与检测阶段保持普通权限（体验最顺），
 //! 仅在安装/卸载瞬间请求一次提权（UAC 只打扰用户一次）。
+//!
+//! 所有子进程调用都加 CREATE_NO_WINDOW，避免 GUI 程序闪黑窗口。
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Windows 创建进程标志：不创建控制台窗口。
+#[cfg(windows)]
+const NO_WINDOW: u32 = 0x08000000;
 
 /// 是否已具备管理员权限。
 /// `net session` 是经典技巧：成功返回 0 仅当提权后。
@@ -9,6 +18,7 @@
 pub fn is_admin() -> bool {
     std::process::Command::new("net")
         .arg("session")
+        .creation_flags(NO_WINDOW)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
@@ -32,6 +42,7 @@ pub fn restart_elevated(extra_args: &[&str]) -> ! {
     );
     let _ = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(NO_WINDOW)
         .spawn();
     // 无论提权是否成功，当前实例都退出，避免出现两个实例
     std::process::exit(0);

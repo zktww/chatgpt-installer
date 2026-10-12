@@ -11,6 +11,7 @@ mod elevate;
 mod env_check;
 mod errors;
 mod install;
+mod settings;
 mod verify;
 
 use std::path::PathBuf;
@@ -49,6 +50,8 @@ fn main() {
             uninstall_package_cmd,
             launch_app,
             get_last_log,
+            get_pkg_dir,
+            set_pkg_dir,
         ])
         .setup(move |app| {
             // 把透传的包目录存入上下文，后续命令优先使用它

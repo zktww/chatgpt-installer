@@ -11,6 +11,9 @@ use crate::constants::LICENSE_URL;
 use crate::download::download_small_file;
 use crate::errors::AppError;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct InstallStage {
     /// 0=准备，1=为当前用户注册，2=为所有用户预置，3=完成
@@ -158,6 +161,7 @@ fn run_ps(script: &str) -> Result<std::process::Output, AppError> {
             "-Command",
             script,
         ])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW：不闪黑窗口
         .output()
         .map_err(|e| {
             AppError::new(

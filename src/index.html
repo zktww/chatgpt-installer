@@ -83,6 +83,16 @@
   .stats b { color:#1f2937; }
   .tip { margin-top:18px; font-size:12px; color:#9aa5b1; background:#f6f8fa;
     border-radius:8px; padding:10px 14px; line-height:1.7;}
+  .dirrow { display:flex; align-items:center; gap:10px; border:1px solid #eef1f4;
+    border-radius:12px; padding:12px 16px; margin:0 0 16px; background:#fbfcfd; }
+  .dirrow .lb { font-size:12px; color:#9aa5b1; flex:none; }
+  .dirrow .dp { flex:1; font-family:Consolas,Menlo,monospace; font-size:12px;
+    color:#374151; word-break:break-all; }
+  .dirinput { width:100%; box-sizing:border-box; border:1px solid #dfe5ec;
+    border-radius:10px; padding:10px 14px; font-size:13px;
+    font-family:Consolas,Menlo,monospace; }
+  .dirinput:focus { outline:none; border-color:#10a37f; }
+  .direrr { font-size:12px; color:#b91c1c; margin-top:8px; min-height:18px; }
   .btnrow { display:flex; gap:10px; margin-top:16px; }
   .mono { font-family:Consolas,Menlo,monospace; font-size:12px; word-break:break-all; }
   .uac { display:flex; gap:12px; align-items:flex-start; background:#fff8e6;
@@ -165,6 +175,20 @@
       <div class="filecard">
         <div class="fic">📦</div>
         <div><div class="fn" id="dlName">ChatGPT-x64.msix</div><div class="fs" id="dlSub">OpenAI 官方安装包</div></div>
+      </div>
+      <div class="dirrow">
+        <span class="lb">下载目录</span>
+        <div class="dp" id="dlDir">读取中…</div>
+        <button class="btn ghost" style="margin:0;padding:8px 16px" id="changeDirBtn">更改</button>
+      </div>
+      <div class="diredit" id="dirEdit" hidden>
+        <input class="dirinput" id="dirInput" placeholder="例如 D:\Downloads" spellcheck="false">
+        <div class="btnrow" style="margin-top:10px">
+          <button class="btn primary" style="margin:0" id="dirOkBtn">确定</button>
+          <button class="btn ghost" style="margin:0" id="dirCancelBtn">取消</button>
+        </div>
+        <div class="direrr" id="dirErr"></div>
+        <div class="tip" style="margin-top:10px">💡 更改目录后，已下载的分片不会迁移，会从新目录重新下载。</div>
       </div>
       <div class="bar live"><div id="dlBar"></div></div>
       <div class="stats" id="dlStats"><span>准备下载…</span></div>
@@ -250,8 +274,15 @@ const sleep = ms => new Promise(r => { const t = setTimeout(r, ms); demoTimers.p
 function clearDemo() { demoTimers.forEach(clearTimeout); demoTimers.length = 0; }
 
 /* ---------- 演示模式假数据 ---------- */
-async function demoInvoke(cmd) {
+async function demoInvoke(cmd, args) {
   await sleep(600);
+  if (cmd === 'get_pkg_dir') return 'C:\\Users\\demo\\AppData\\Local\\com.github.chatgpt-installer';
+  if (cmd === 'set_pkg_dir') {
+    const p = (args.path || '').trim();
+    if (!p) throw { message: '目录不能为空' };
+    if (!/^[a-zA-Z]:[\\/]/.test(p)) throw { message: '请填写绝对路径，例如 D:\\Downloads' };
+    return p;
+  }
   if (cmd === 'check_env') return [
     { id:'os', title:'操作系统', detail:'Windows 11 24H2（Build 26100），满足要求', status:'ok' },
     { id:'arch', title:'CPU 架构', detail:'x64，已自动匹配安装包 ChatGPT-x64.msix', status:'ok' },
@@ -310,7 +341,7 @@ function go(n) {
   // 门禁：环境检测未通过 / 安全校验未完成时不允许下一步
   nextBtn.disabled = (cur === 1 && !envChecked) || (cur === 3 && !verified);
   if (cur === 1) runEnvCheck();
-  if (cur === 2) runDownload();
+  if (cur === 2) { loadPkgDir(); runDownload(); }
   if (cur === 3) runVerify();
 }
 prevBtn.addEventListener('click', () => go(cur === 6 ? 4 : cur - 1));
@@ -368,6 +399,36 @@ document.getElementById('pauseBtn').addEventListener('click', async function () 
   this.textContent = paused ? '▶ 继续' : '⏸ 暂停';
   if (paused) { await invoke('pause_download'); }
   else { dlStarted = false; runDownload(); }
+});
+
+/* ---------- 下载目录 ---------- */
+async function loadPkgDir() {
+  try {
+    document.getElementById('dlDir').textContent = await invoke('get_pkg_dir');
+  } catch (e) {
+    document.getElementById('dlDir').textContent = '读取失败';
+  }
+}
+document.getElementById('changeDirBtn').addEventListener('click', () => {
+  const cur = document.getElementById('dlDir').textContent;
+  document.getElementById('dirInput').value = (cur === '读取失败' || cur === '读取中…') ? '' : cur;
+  document.getElementById('dirErr').textContent = '';
+  document.getElementById('dirEdit').hidden = false;
+  document.getElementById('dirInput').focus();
+});
+document.getElementById('dirCancelBtn').addEventListener('click', () => {
+  document.getElementById('dirEdit').hidden = true;
+});
+document.getElementById('dirOkBtn').addEventListener('click', async () => {
+  const v = document.getElementById('dirInput').value.trim();
+  const errEl = document.getElementById('dirErr');
+  errEl.textContent = '';
+  try {
+    document.getElementById('dlDir').textContent = await invoke('set_pkg_dir', { path: v });
+    document.getElementById('dirEdit').hidden = true;
+  } catch (e) {
+    errEl.textContent = e.message || String(e);
+  }
 });
 
 /* ---------- 校验 ---------- */

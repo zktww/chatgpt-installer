@@ -4,6 +4,9 @@ use serde::Serialize;
 use crate::constants::*;
 use crate::elevate::is_admin;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct EnvItem {
     pub id: &'static str,
@@ -192,6 +195,7 @@ fn check_admin() -> EnvItem {
 fn run_ps_quick(script: &str) -> Result<String, ()> {
     let out = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW：不闪黑窗口
         .output()
         .map_err(|_| ())?;
     if !out.status.success() {

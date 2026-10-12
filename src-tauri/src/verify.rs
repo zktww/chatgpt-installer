@@ -10,6 +10,9 @@ use quick_xml::Reader;
 use serde::Serialize;
 
 use crate::constants::*;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use crate::errors::AppError;
 
 #[derive(Debug, Clone, Serialize)]
@@ -166,6 +169,7 @@ fn read_manifest_identity(path: &Path) -> Result<(String, String), AppError> {
 fn ps_text(script: &str) -> Result<String, AppError> {
     let out = std::process::Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW：不闪黑窗口
         .output()
         .map_err(|e| {
             AppError::new(

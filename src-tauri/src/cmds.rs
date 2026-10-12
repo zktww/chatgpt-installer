@@ -47,14 +47,17 @@ fn push_log(app: &AppHandle, line: &str) {
     }
 }
 
-/// 安装包所在目录：优先使用提权透传的原用户目录。
-fn pkg_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
+/// 安装包所在目录：提权透传 > 用户自定义 > 默认应用数据目录。
+pub(crate) fn pkg_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     if let Some(ctx) = app.try_state::<AppCtx>() {
         if let Ok(guard) = ctx.pkg_dir_override.lock() {
             if let Some(d) = guard.as_ref() {
                 return Ok(d.clone());
             }
         }
+    }
+    if let Some(custom) = crate::settings::load_custom_dir(app) {
+        return Ok(custom);
     }
     let dir = app
         .path()
@@ -63,6 +66,20 @@ fn pkg_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::new("IO_ERROR", "无法创建数据目录", e.to_string()))?;
     Ok(dir)
+}
+
+/// 当前生效的下载目录（供前端展示）。
+#[tauri::command]
+pub fn get_pkg_dir(app: AppHandle) -> Result<String, AppError> {
+    Ok(pkg_dir(&app)?.to_string_lossy().into())
+}
+
+/// 设置自定义下载目录：校验绝对路径、可创建、可写后持久化。
+#[tauri::command]
+pub fn set_pkg_dir(app: AppHandle, path: String) -> Result<String, AppError> {
+    let dir = crate::settings::save_custom_dir(&app, &path)?;
+    push_log(&app, &format!("[settings] pkg_dir -> {}", dir.display()));
+    Ok(dir.to_string_lossy().into())
 }
 
 fn msix_path(app: &AppHandle) -> Result<PathBuf, AppError> {
