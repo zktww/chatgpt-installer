@@ -23,7 +23,9 @@ Windows 上一键下载并安装 **官方 ChatGPT 桌面版** 的开源小工具
 
 ## 快速开始（普通用户）
 
-1. 到 [Releases](../../releases) 下载 `ChatGPT安装助手.exe`
+1. 到 [Releases](../../releases) 下载 `chatgpt-installer.exe`（单文件免安装，双击即用，推荐）
+   - 备选：`ChatGPT 安装助手_x.x.x_x64-setup.exe`（NSIS 安装向导版，会写入开始菜单与系统卸载列表，适合偏好"正式安装"的用户）
+   - 两个二选一即可，不用都下
 2. 双击运行，跟着向导走完 6 步即可
 3. 首次启动 Windows 可能会弹 SmartScreen（未购买代码签名证书所致），点"更多信息 → 仍要运行"
 
