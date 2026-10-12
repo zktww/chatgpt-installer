@@ -326,3 +326,10 @@ pub fn get_last_log(app: AppHandle) -> Result<String, AppError> {
     let state: State<LogState> = app.state();
     Ok(state.0.lock().map(|l| l.clone()).unwrap_or_default())
 }
+
+/// 退出程序：安装成功页的「完成」按钮 / 自动关闭倒计时。
+#[tauri::command]
+pub fn exit_app(app: AppHandle) {
+    push_log(&app, "[app] exit");
+    app.exit(0);
+}

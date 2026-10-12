@@ -52,6 +52,7 @@ fn main() {
             get_last_log,
             get_pkg_dir,
             set_pkg_dir,
+            exit_app,
         ])
         .setup(move |app| {
             // 把透传的包目录存入上下文，后续命令优先使用它

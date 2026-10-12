@@ -223,6 +223,7 @@
         <div class="btnrow" style="justify-content:center">
           <button class="btn primary" id="launchBtn">启动 ChatGPT</button>
         </div>
+        <p class="sub" id="autoCloseTip" style="margin-top:14px;color:#9aa5b1"></p>
       </div>
     </div>
 
@@ -277,6 +278,7 @@ function clearDemo() { demoTimers.forEach(clearTimeout); demoTimers.length = 0; 
 async function demoInvoke(cmd, args) {
   await sleep(600);
   if (cmd === 'get_pkg_dir') return 'C:\\Users\\demo\\AppData\\Local\\com.github.chatgpt-installer';
+  if (cmd === 'exit_app') return null;
   if (cmd === 'set_pkg_dir') {
     const p = (args.path || '').trim();
     if (!p) throw { message: '目录不能为空' };
@@ -329,6 +331,7 @@ function onEventOnce(name, cb) {
 
 function go(n) {
   clearDemo();
+  clearTimeout(autoCloseTimer);
   cur = Math.max(0, Math.min(steps.length - 1, n));
   steps.forEach((s, i) => s.classList.toggle('active', i === cur));
   dots.forEach((d, i) => {
@@ -343,9 +346,11 @@ function go(n) {
   if (cur === 1) runEnvCheck();
   if (cur === 2) { loadPkgDir(); runDownload(); }
   if (cur === 3) runVerify();
+  if (cur === 5) armAutoClose();
 }
 prevBtn.addEventListener('click', () => go(cur === 6 ? 4 : cur - 1));
 nextBtn.addEventListener('click', async () => {
+  if (cur === 5) { invoke('exit_app'); return; }
   if (cur === 3) { doInstall(); return; }
   if (cur < 5) go(cur + 1);
 });
@@ -503,7 +508,24 @@ document.getElementById('copyLogBtn').addEventListener('click', async () => {
     alert('诊断日志已复制');
   } catch (e) { alert('复制失败：' + e); }
 });
-document.getElementById('launchBtn').addEventListener('click', () => invoke('launch_app'));
+document.getElementById('launchBtn').addEventListener('click', async () => {
+  try { await invoke('launch_app'); } finally { invoke('exit_app'); }
+});
+
+/* ---------- 安装成功：8 秒倒计时后自动关闭 ---------- */
+let autoCloseTimer = null;
+function armAutoClose() {
+  clearTimeout(autoCloseTimer);
+  const tip = document.getElementById('autoCloseTip');
+  let n = 8;
+  const tick = () => {
+    if (n <= 0) { invoke('exit_app'); return; }
+    tip.textContent = n + ' 秒后自动关闭';
+    n--;
+    autoCloseTimer = setTimeout(tick, 1000);
+  };
+  tick();
+}
 
 /* ---------- 卸载 ---------- */
 function showBusy(text) {
