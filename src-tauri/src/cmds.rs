@@ -87,7 +87,7 @@ where
 
 #[tauri::command]
 pub async fn check_env() -> Result<Vec<EnvItem>, AppError> {
-    blocking(run_env_check).await
+    blocking(|| Ok(run_env_check())).await
 }
 
 #[tauri::command]
