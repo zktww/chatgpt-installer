@@ -1,0 +1,29 @@
+[package]
+name = "chatgpt-installer"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "ChatGPT Windows 桌面版一键安装助手（开源、纯客户端）"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# blocking 模式：下载逻辑写在独立线程里，保持简单
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls"] }
+# 解析 MSIX（本质是 zip）内的 AppxManifest.xml，核验包身份
+zip = "2"
+quick-xml = "0.37"
+
+[target.'cfg(windows)'.dependencies]
+# 读系统版本号（CurrentBuildNumber）
+winreg = "0.55"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

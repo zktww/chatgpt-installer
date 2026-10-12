@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatGPT 安装助手</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    font-family: "PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    background:#f4f6f8; color:#1f2937; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .window { width:800px; max-width:96vw; background:#fff; border-radius:16px;
+    box-shadow:0 24px 70px rgba(30,50,80,.22); overflow:hidden; }
+  .titlebar { display:flex; align-items:center; gap:10px; padding:12px 18px;
+    border-bottom:1px solid #eef1f4; background:#fafbfc; }
+  .appicon { width:26px; height:26px; border-radius:8px; background:#10a37f;
+    display:flex; align-items:center; justify-content:center; color:#fff;
+    font-size:15px; font-weight:700; }
+  .titlebar .t { font-size:14px; font-weight:600; }
+  .demotag { margin-left:auto; font-size:11px; color:#b45309; background:#fef3c7;
+    border-radius:6px; padding:3px 8px; display:none; }
+  body.demo .demotag { display:block; }
+  .stepper { display:flex; align-items:flex-start; padding:22px 48px 6px; }
+  .st { flex:1; text-align:center; position:relative; }
+  .st .dot { width:30px; height:30px; border-radius:50%; margin:0 auto 6px;
+    display:flex; align-items:center; justify-content:center;
+    background:#eef1f4; color:#9aa5b1; font-size:13px; font-weight:600;
+    border:2px solid #eef1f4; transition:all .2s; position:relative; z-index:1; }
+  .st .lb { font-size:12px; color:#9aa5b1; }
+  .st::before { content:""; position:absolute; top:15px; left:-50%; width:100%;
+    height:2px; background:#eef1f4; }
+  .st:first-child::before { display:none; }
+  .st.done .dot { background:#10a37f; border-color:#10a37f; color:#fff; }
+  .st.done::before { background:#10a37f; }
+  .st.done .lb { color:#10a37f; }
+  .st.now .dot { border-color:#10a37f; color:#10a37f; background:#fff;
+    box-shadow:0 0 0 4px rgba(16,163,127,.15); }
+  .st.now .lb { color:#1f2937; font-weight:600; }
+  .content { padding:18px 56px 8px; min-height:400px; }
+  .step { display:none; animation:fade .25s ease; }
+  .step.active { display:block; }
+  @keyframes fade { from { opacity:0; transform:translateY(6px);} to { opacity:1; transform:none;} }
+  .hero { text-align:center; padding-top:22px; }
+  .logo { width:72px; height:72px; border-radius:22px; background:#10a37f; margin:0 auto 18px;
+    display:flex; align-items:center; justify-content:center; color:#fff;
+    font-size:36px; font-weight:700; box-shadow:0 10px 26px rgba(16,163,127,.35); }
+  h1 { font-size:26px; margin-bottom:10px; }
+  .sub { color:#6b7a8d; font-size:14px; margin-bottom:24px; line-height:1.7; }
+  .cards { display:flex; gap:14px; text-align:left; }
+  .card { flex:1; border:1px solid #e8edf2; border-radius:12px; padding:16px; background:#fbfcfd; }
+  .card .ic { font-size:22px; margin-bottom:8px; }
+  .card h3 { font-size:14px; margin-bottom:6px; }
+  .card p { font-size:12px; color:#6b7a8d; line-height:1.7; }
+  .sysreq { text-align:center; margin-top:24px; font-size:12px; color:#9aa5b1; line-height:2; }
+  .sysreq a { color:#9aa5b1; cursor:pointer; } .sysreq a:hover { color:#10a37f; }
+  .checklist { margin-top:8px; }
+  .row { display:flex; align-items:center; gap:14px; padding:13px 16px;
+    border:1px solid #eef1f4; border-radius:10px; margin-bottom:10px; background:#fff; }
+  .badge { width:28px; height:28px; border-radius:50%; flex:none;
+    display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; }
+  .ok { background:#e6f7f0; color:#0d8a68; }
+  .bad { background:#fdeaea; color:#c2410c; }
+  .info { background:#e8f1fd; color:#2f6fed; }
+  .row .tt { font-size:14px; font-weight:600; }
+  .row .ds { font-size:12px; color:#6b7a8d; margin-top:2px; }
+  .spinrow { display:flex; align-items:center; gap:14px; padding:20px; color:#6b7a8d; font-size:14px; }
+  .filecard { display:flex; align-items:center; gap:14px; border:1px solid #eef1f4;
+    border-radius:12px; padding:16px 18px; margin:10px 0 20px; background:#fbfcfd; }
+  .filecard .fic { font-size:30px; }
+  .filecard .fn { font-size:15px; font-weight:600; }
+  .filecard .fs { font-size:12px; color:#6b7a8d; margin-top:3px; }
+  .bar { height:12px; background:#eef1f4; border-radius:99px; overflow:hidden; }
+  .bar > div { height:100%; width:0; border-radius:99px;
+    background:linear-gradient(90deg,#10a37f,#34d399); position:relative; transition:width .3s; }
+  .bar.live > div::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);
+    animation:shimmer 1.6s infinite; }
+  @keyframes shimmer { from { transform:translateX(-100%);} to { transform:translateX(100%);} }
+  .stats { display:flex; gap:22px; margin:12px 2px 4px; font-size:13px; color:#6b7a8d; flex-wrap:wrap; }
+  .stats b { color:#1f2937; }
+  .tip { margin-top:18px; font-size:12px; color:#9aa5b1; background:#f6f8fa;
+    border-radius:8px; padding:10px 14px; line-height:1.7;}
+  .btnrow { display:flex; gap:10px; margin-top:16px; }
+  .mono { font-family:Consolas,Menlo,monospace; font-size:12px; word-break:break-all; }
+  .uac { display:flex; gap:12px; align-items:flex-start; background:#fff8e6;
+    border:1px solid #f5e3ac; border-radius:10px; padding:12px 16px;
+    font-size:13px; color:#8a6d1a; margin-bottom:18px; line-height:1.7; }
+  .stage { display:flex; align-items:center; gap:12px; padding:10px 4px; font-size:14px; }
+  .spin { width:20px; height:20px; border-radius:50%; flex:none;
+    border:3px solid #d7f0e7; border-top-color:#10a37f; animation:rot 1s linear infinite; }
+  @keyframes rot { to { transform:rotate(360deg);} }
+  .pend { width:20px; height:20px; border-radius:50%; background:#eef1f4; flex:none; }
+  .stagetxt { color:#6b7a8d; font-size:13px; margin:14px 2px 0; }
+  .bigok { width:84px; height:84px; border-radius:50%; background:#10a37f; color:#fff;
+    font-size:44px; display:flex; align-items:center; justify-content:center;
+    margin:24px auto 18px; box-shadow:0 12px 30px rgba(16,163,127,.35); }
+  .bigerr { width:84px; height:84px; border-radius:50%; background:#f59e0b; color:#fff;
+    font-size:44px; display:flex; align-items:center; justify-content:center;
+    margin:24px auto 18px; box-shadow:0 12px 30px rgba(245,158,11,.3); }
+  .center { text-align:center; }
+  .codechip { display:inline-block; background:#fef2f2; color:#b91c1c; border:1px solid #f5c2c2;
+    font-family:Consolas,monospace; font-size:13px; border-radius:8px; padding:6px 14px; margin:12px 0; }
+  .errbox { background:#fffbeb; border:1px solid #f5e3ac; border-radius:10px;
+    padding:14px 18px; font-size:13px; color:#8a6d1a; line-height:1.8; margin:6px 0 4px; text-align:left; }
+  .checkline { display:flex; align-items:center; justify-content:center; gap:8px; margin:18px 0 4px; font-size:14px; }
+  .foot { display:flex; align-items:center; padding:16px 56px 22px; }
+  .btn { border:none; border-radius:10px; padding:11px 26px; font-size:14px; cursor:pointer;
+    font-family:inherit; transition:all .15s; }
+  .primary { background:#10a37f; color:#fff; font-weight:600; }
+  .primary:hover { background:#0d8a68; }
+  .primary:disabled { background:#c8d2dc; cursor:not-allowed; }
+  .ghost { background:#f1f4f7; color:#374151; margin-right:auto; }
+  .ghost:hover { background:#e5eaf0; }
+  .ghost:disabled { opacity:.4; cursor:not-allowed; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar">
+    <div class="appicon">✦</div>
+    <div class="t">ChatGPT 安装助手</div>
+    <div class="demotag">演示模式（浏览器预览）</div>
+  </div>
+
+  <div class="stepper" id="stepper">
+    <div class="st" data-i="0"><div class="dot">1</div><div class="lb">欢迎</div></div>
+    <div class="st" data-i="1"><div class="dot">2</div><div class="lb">环境检测</div></div>
+    <div class="st" data-i="2"><div class="dot">3</div><div class="lb">下载安装包</div></div>
+    <div class="st" data-i="3"><div class="dot">4</div><div class="lb">安全校验</div></div>
+    <div class="st" data-i="4"><div class="dot">5</div><div class="lb">安装</div></div>
+    <div class="st" data-i="5"><div class="dot">6</div><div class="lb">完成</div></div>
+  </div>
+
+  <div class="content">
+    <div class="step" data-s="0">
+      <div class="hero">
+        <div class="logo">✦</div>
+        <h1>ChatGPT 桌面版安装助手</h1>
+        <p class="sub">一键下载并安装官方 ChatGPT Windows 客户端<br>全程无需打开微软商店</p>
+        <div class="cards">
+          <div class="card"><div class="ic">🚀</div><h3>官方原包直连</h3><p>从 OpenAI 官方 CDN 下载安装包，不做任何二次打包或修改</p></div>
+          <div class="card"><div class="ic">🛡️</div><h3>安装前验签</h3><p>校验数字签名与发布者身份，来源可验证、装得放心</p></div>
+          <div class="card"><div class="ic">⏸️</div><h3>断点续传</h3><p>800MB 大安装包，断网或关闭后重新打开自动续传</p></div>
+        </div>
+        <div class="sysreq">适用于 Windows 10（19041+）/ Windows 11 · x64 / ARM64　·　开源免费（MIT）<br>
+          <a id="uninstallLink">已安装？点此卸载 / 重新安装</a></div>
+      </div>
+    </div>
+
+    <div class="step" data-s="1">
+      <div class="checklist" id="envList"><div class="spinrow"><div class="spin"></div>正在检测运行环境…</div></div>
+      <div class="btnrow"><button class="btn ghost" style="margin:0" id="recheckBtn">↻ 重新检测</button></div>
+    </div>
+
+    <div class="step" data-s="2">
+      <div class="filecard">
+        <div class="fic">📦</div>
+        <div><div class="fn" id="dlName">ChatGPT-x64.msix</div><div class="fs" id="dlSub">OpenAI 官方安装包</div></div>
+      </div>
+      <div class="bar live"><div id="dlBar"></div></div>
+      <div class="stats" id="dlStats"><span>准备下载…</span></div>
+      <div class="btnrow">
+        <button class="btn ghost" style="margin:0" id="pauseBtn">⏸ 暂停</button>
+      </div>
+      <div class="tip">💡 下载支持断点续传，关闭程序后重新打开会自动继续，无需从头开始。</div>
+    </div>
+
+    <div class="step" data-s="3">
+      <div class="checklist" id="verifyList"><div class="spinrow"><div class="spin"></div>正在校验安装包签名…</div></div>
+      <div class="tip">🛡️ 签名由 Microsoft Marketplace CA 颁发，与微软商店分发的版本为同一签名，可放心安装。</div>
+    </div>
+
+    <div class="step" data-s="4">
+      <div class="uac">🔐 <span>需要管理员权限。系统弹出确认窗口时请点击「是」，这是安装应用包的常规要求。</span></div>
+      <div class="bar live"><div id="instBar"></div></div>
+      <div class="stagetxt" id="instTxt">准备安装…</div>
+      <div style="margin-top:14px" id="instStages">
+        <div class="stage" data-k="1"><div class="pend"></div><span style="color:#9aa5b1">为当前用户注册</span></div>
+        <div class="stage" data-k="2"><div class="pend"></div><span style="color:#9aa5b1">为所有用户预置</span></div>
+        <div class="stage" data-k="3"><div class="pend"></div><span style="color:#9aa5b1">完成</span></div>
+      </div>
+    </div>
+
+    <div class="step" data-s="5">
+      <div class="center">
+        <div class="bigok">✓</div>
+        <h1>安装成功！</h1>
+        <p class="sub" id="doneSub">ChatGPT 已就绪</p>
+        <label class="checkline"><input type="checkbox" checked style="width:16px;height:16px;accent-color:#10a37f"> 在桌面创建快捷方式</label>
+        <div class="btnrow" style="justify-content:center">
+          <button class="btn primary" id="launchBtn">启动 ChatGPT</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="step" data-s="6">
+      <div class="center">
+        <div class="bigerr">!</div>
+        <h1>安装遇到问题</h1>
+        <div><span class="codechip" id="errCode">UNKNOWN</span></div>
+        <div class="errbox"><b id="errMsg"></b><br><span id="errHint"></span></div>
+        <div class="btnrow" style="justify-content:center">
+          <button class="btn ghost" style="margin:0" id="copyLogBtn">复制诊断日志</button>
+          <button class="btn primary" id="retryBtn">重试</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <button class="btn ghost" id="prevBtn">← 上一步</button>
+    <button class="btn primary" id="nextBtn" style="margin-left:12px">开始安装 →</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+ * 极简前端逻辑：步骤切换 + Tauri IPC。
+ * 直接用浏览器打开时进入演示模式（假数据），仅用于预览界面。
+ * ============================================================ */
+const TAURI = (window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__ : null;
+const DEMO = !TAURI;
+if (DEMO) document.body.classList.add('demo');
+
+const demoTimers = [];
+function onEvent(name, cb) {
+  if (DEMO) { (window._demoEv = window._demoEv || {})[name] = cb; return; }
+  TAURI.event.listen(name, e => cb(e.payload));
+}
+function fireDemo(name, payload) {
+  const cb = (window._demoEv || {})[name];
+  if (cb) cb(payload);
+}
+async function invoke(cmd, args) {
+  if (DEMO) return demoInvoke(cmd, args || {});
+  return TAURI.core.invoke(cmd, args || {});
+}
+const sleep = ms => new Promise(r => { const t = setTimeout(r, ms); demoTimers.push(t); });
+function clearDemo() { demoTimers.forEach(clearTimeout); demoTimers.length = 0; }
+
+/* ---------- 演示模式假数据 ---------- */
+async function demoInvoke(cmd) {
+  await sleep(600);
+  if (cmd === 'check_env') return [
+    { id:'os', title:'操作系统', detail:'Windows 11 24H2（Build 26100），满足要求', status:'ok' },
+    { id:'arch', title:'CPU 架构', detail:'x64，已自动匹配安装包 ChatGPT-x64.msix', status:'ok' },
+    { id:'disk', title:'磁盘空间', detail:'C 盘可用 128.4 GB（需要 ≥ 3 GB）', status:'ok' },
+    { id:'net', title:'网络连通', detail:'官方 CDN 可达，延迟约 86ms', status:'ok' },
+    { id:'admin', title:'管理员权限', detail:'当前为普通权限，安装步骤开始时将请求一次提权', status:'warn' },
+  ];
+  if (cmd === 'start_download') {
+    let dl = 0; const total = 786.4 * 1048576;
+    const tick = async () => {
+      dl = Math.min(total, dl + total * 0.04);
+      fireDemo('download-progress', { downloaded: dl, total, percent: dl / total * 100 });
+      if (dl < total) { const t = setTimeout(tick, 220); demoTimers.push(t); }
+      else fireDemo('download-done', { total });
+    };
+    tick();
+    return { url: 'https://persistent.oaistatic.com/codex-app-prod/ChatGPT-x64.msix', dest: 'C:\\demo\\ChatGPT-x64.msix', resumed_from: 0, total };
+  }
+  if (cmd === 'verify_package') return {
+    signature: 'Valid', publisher: '50BDFD77-8903-4850-9FFE-6E8522F64D5B',
+    identity: 'OpenAI.Codex', version: '26.915.4065.0', size: 824570408 };
+  if (cmd === 'install_package') {
+    const stages = [[1, '正在为当前用户注册应用包…'], [2, '正在为所有用户预置…'], [3, '安装完成']];
+    for (const [s, t] of stages) { await sleep(900); fireDemo('install-progress', { stage: s, text: t }); }
+    return null;
+  }
+  if (cmd === 'get_last_log') return '[demo] log line 1\n[demo] log line 2';
+  return null;
+}
+
+/* ---------- 步骤切换 ---------- */
+const steps = document.querySelectorAll('.step');
+const dots = document.querySelectorAll('#stepper .st');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const labels = ['开始安装 →', '下一步 →', '下一步 →', '开始安装', '安装中…', '完成'];
+let cur = -1, envChecked = false, dlStarted = false, verified = false;
+const boundEv = new Set();
+function onEventOnce(name, cb) {
+  if (boundEv.has(name)) return;
+  boundEv.add(name);
+  onEvent(name, cb);
+}
+
+function go(n) {
+  clearDemo();
+  cur = Math.max(0, Math.min(steps.length - 1, n));
+  steps.forEach((s, i) => s.classList.toggle('active', i === cur));
+  dots.forEach((d, i) => {
+    d.classList.toggle('done', i < cur);
+    d.classList.toggle('now', i === cur);
+  });
+  prevBtn.style.visibility = (cur === 0 || cur === 5) ? 'hidden' : 'visible';
+  nextBtn.style.display = (cur === 4) ? 'none' : '';
+  nextBtn.textContent = labels[cur] || '完成';
+  nextBtn.disabled = (cur === 1 && !envChecked);
+  if (cur === 1) runEnvCheck();
+  if (cur === 2) runDownload();
+  if (cur === 3) runVerify();
+}
+prevBtn.addEventListener('click', () => go(cur === 6 ? 4 : cur - 1));
+nextBtn.addEventListener('click', async () => {
+  if (cur === 3) { doInstall(); return; }
+  if (cur < 5) go(cur + 1);
+});
+document.getElementById('recheckBtn').addEventListener('click', runEnvCheck);
+
+/* ---------- 环境检测 ---------- */
+const badge = { ok: ['ok', '✓'], warn: ['info', 'ⓘ'], fail: ['bad', '✕'] };
+async function runEnvCheck() {
+  envChecked = false; nextBtn.disabled = true;
+  document.getElementById('envList').innerHTML = '<div class="spinrow"><div class="spin"></div>正在检测运行环境…</div>';
+  try {
+    const items = await invoke('check_env');
+    document.getElementById('envList').innerHTML = items.map(it => {
+      const [cls, ic] = badge[it.status] || badge.info;
+      return `<div class="row"><div class="badge ${cls}">${ic}</div><div><div class="tt">${it.title}</div><div class="ds">${it.detail}</div></div></div>`;
+    }).join('');
+    envChecked = !items.some(it => it.status === 'fail');
+  } catch (e) {
+    document.getElementById('envList').innerHTML = '<div class="spinrow">检测失败：' + esc(e.message || e) + '</div>';
+  }
+  nextBtn.disabled = !envChecked;
+}
+
+/* ---------- 下载 ---------- */
+const fmtMB = b => (b / 1048576).toFixed(1) + ' MB';
+async function runDownload() {
+  if (dlStarted) return; dlStarted = true;
+  try {
+    const info = await invoke('start_download');
+    document.getElementById('dlName').textContent = info.dest.split(/[/\\]/).pop();
+    if (info.total > 0 && info.resumed_from >= info.total) {
+      setDl(1, info.total, info.total, '已完成，可继续下一步');
+      return;
+    }
+  } catch (e) { showError(e, 2); return; }
+  onEventOnce('download-progress', p => {
+    setDl(p.percent / 100, p.downloaded, p.total, '');
+    document.getElementById('dlStats').innerHTML =
+      `<span><b>${p.percent.toFixed(1)}%</b></span><span>${fmtMB(p.downloaded)} / ${p.total ? fmtMB(p.total) : '?'}</span>`;
+  });
+  onEventOnce('download-done', () => { setDl(1, 0, 0, '下载完成'); });
+  onEventOnce('download-error', e => showError(e, 2));
+}
+function setDl(ratio, dl, total, note) {
+  document.getElementById('dlBar').style.width = (ratio * 100).toFixed(1) + '%';
+  if (note) document.getElementById('dlStats').innerHTML = `<span><b>${note}</b></span>`;
+}
+let paused = false;
+document.getElementById('pauseBtn').addEventListener('click', async function () {
+  paused = !paused;
+  this.textContent = paused ? '▶ 继续' : '⏸ 暂停';
+  if (paused) { await invoke('pause_download'); }
+  else { dlStarted = false; runDownload(); }
+});
+
+/* ---------- 校验 ---------- */
+async function runVerify() {
+  if (verified) return;
+  try {
+    const v = await invoke('verify_package');
+    verified = true;
+    const rows = [
+      ['数字签名', v.signature + '（Valid）'],
+      ['发布者', '<span class="mono">CN=' + esc(v.publisher) + '</span>'],
+      ['包标识', '<span class="mono">' + esc(v.identity) + '</span>'],
+      ['版本', esc(v.version) + '（' + fmtMB(v.size) + '）'],
+    ];
+    document.getElementById('verifyList').innerHTML = rows.map(([t, d]) =>
+      `<div class="row"><div class="badge ok">✓</div><div><div class="tt">${t}</div><div class="ds">${d}</div></div></div>`).join('');
+  } catch (e) { showError(e, 2); }
+}
+
+/* ---------- 安装 ---------- */
+function setStage(k, state) {
+  document.querySelectorAll('#instStages .stage').forEach(el => {
+    if (+el.dataset.k !== k) return;
+    const dot = el.querySelector('div'), txt = el.querySelector('span');
+    if (state === 'run') { dot.className = 'spin'; txt.style.color = '#1f2937'; }
+    if (state === 'done') { dot.className = 'badge ok'; dot.style.cssText = 'width:20px;height:20px;font-size:12px'; dot.textContent = '✓'; txt.style.color = '#1f2937'; }
+  });
+}
+async function doInstall() {
+  go(4);
+  onEventOnce('install-progress', p => {
+    document.getElementById('instTxt').textContent = p.text;
+    document.getElementById('instBar').style.width = (p.stage / 3 * 100) + '%';
+    setStage(p.stage, p.stage >= 3 ? 'done' : 'run');
+    if (p.stage >= 3) setTimeout(() => go(5), 600);
+  });
+  onEventOnce('install-warning', w => { console.warn(w); });
+  try {
+    await invoke('install_package');
+  } catch (e) {
+    const err = e && e.code ? e : { code: 'INSTALL_FAILED', message: String(e), hint: '' };
+    if (err.code === 'NEED_ELEVATION') {
+      if (confirm('安装需要管理员权限，点击确定后程序将请求提权并自动继续。')) {
+        invoke('restart_elevated_cmd');
+      }
+      return;
+    }
+    showError(err, 4);
+  }
+}
+
+/* ---------- 错误页 / 工具 ---------- */
+function showError(e, retryStep) {
+  const err = (e && e.code) ? e : { code: 'UNKNOWN', message: String(e && e.message || e), hint: '' };
+  document.getElementById('errCode').textContent = err.code;
+  document.getElementById('errMsg').textContent = err.message;
+  document.getElementById('errHint').textContent = err.hint || '';
+  document.getElementById('retryBtn').onclick = () => {
+    if (retryStep === 2) { dlStarted = false; verified = false; }
+    go(retryStep);
+  };
+  go(6);
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+document.getElementById('copyLogBtn').addEventListener('click', async () => {
+  try {
+    const log = await invoke('get_last_log');
+    await navigator.clipboard.writeText(log || '(暂无日志)');
+    alert('诊断日志已复制');
+  } catch (e) { alert('复制失败：' + e); }
+});
+document.getElementById('launchBtn').addEventListener('click', () => invoke('launch_app'));
+document.getElementById('uninstallLink').addEventListener('click', async () => {
+  if (!confirm('确定要卸载 ChatGPT 桌面版吗？')) return;
+  const removeData = confirm('是否同时删除登录状态与本地数据？\n确定=全部删除，取消=保留数据');
+  try { await invoke('uninstall_package_cmd', { removeData }); alert('卸载完成'); }
+  catch (e) {
+    if (e && e.code === 'NEED_ELEVATION' && confirm('卸载需要管理员权限，点击确定后程序将请求提权。')) invoke('restart_elevated_cmd');
+    else showError(e, 0);
+  }
+});
+onEvent('resume-install', () => doInstall()); // 提权重启后自动继续
+go(0);
+</script>
+</body>
+</html>
