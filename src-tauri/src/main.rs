@@ -53,7 +53,7 @@ fn main() {
         .setup(move |app| {
             // 把透传的包目录存入上下文，后续命令优先使用它
             if let Some(dir) = pkg_dir {
-                if let Ok(ctx) = app.try_state::<AppCtx>() {
+                if let Some(ctx) = app.try_state::<AppCtx>() {
                     if let Ok(mut guard) = ctx.pkg_dir_override.lock() {
                         *guard = Some(dir);
                     }

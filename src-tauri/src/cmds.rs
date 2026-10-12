@@ -34,7 +34,7 @@ pub struct AppCtx {
 }
 
 fn push_log(app: &AppHandle, line: &str) {
-    if let Ok(state) = app.try_state::<LogState>() {
+    if let Some(state) = app.try_state::<LogState>() {
         if let Ok(mut log) = state.0.lock() {
             log.push_str(line);
             log.push('\n');
@@ -49,7 +49,7 @@ fn push_log(app: &AppHandle, line: &str) {
 
 /// 安装包所在目录：优先使用提权透传的原用户目录。
 fn pkg_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
-    if let Ok(ctx) = app.try_state::<AppCtx>() {
+    if let Some(ctx) = app.try_state::<AppCtx>() {
         if let Ok(guard) = ctx.pkg_dir_override.lock() {
             if let Some(d) = guard.as_ref() {
                 return Ok(d.clone());
