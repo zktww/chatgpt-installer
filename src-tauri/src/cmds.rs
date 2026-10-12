@@ -212,6 +212,19 @@ pub async fn verify_package(app: AppHandle) -> Result<VerifyInfo, AppError> {
 /// 1. 强制安全校验（签名/发布者/包身份），任何入口都必须通过；
 /// 2. 已提权：当前用户注册 + 整机预置；
 /// 3. 未提权：先尝试免提权为当前用户安装，失败且疑似权限问题时才要求提权。
+/// 安装成功后清理安装包文件（800MB+），只保留设置文件。
+/// 卸载/重装都不需要这些文件，重装会重新下载。
+fn cleanup_package_files(app: &AppHandle, msix: &std::path::Path) {
+    for p in [
+        msix.to_path_buf(),
+        msix.with_extension("part"),
+        msix.with_extension("etag"),
+    ] {
+        let _ = std::fs::remove_file(&p);
+    }
+    push_log(app, "[install] package files cleaned");
+}
+
 fn install_flow(app: &AppHandle) -> Result<(), AppError> {
     let msix = msix_path(app)?;
     if !msix.exists() {
@@ -241,6 +254,7 @@ fn install_flow(app: &AppHandle) -> Result<(), AppError> {
         }
         emit_stage(app, 3, "安装完成");
         push_log(app, "[install] success (elevated)");
+        cleanup_package_files(app, &msix);
         return Ok(());
     }
 
@@ -250,6 +264,7 @@ fn install_flow(app: &AppHandle) -> Result<(), AppError> {
         Ok(()) => {
             emit_stage(app, 3, "安装完成");
             push_log(app, "[install] success (per-user, no elevation)");
+            cleanup_package_files(app, &msix);
             Ok(())
         }
         Err(e) if e.is_elevation_error() => {
