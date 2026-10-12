@@ -13,17 +13,31 @@ mod errors;
 mod install;
 mod verify;
 
+use std::path::PathBuf;
+use std::time::Duration;
+
 use cmds::*;
 use download::DownloadState;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 fn main() {
-    // 提权重启后自动回到安装步骤
-    let resume_install = std::env::args().any(|a| a == "--resume-install");
+    // 提权重启透参：
+    //   --resume=install | uninstall | uninstall-data
+    //   --pkg-dir=<原用户安装包目录>（标准用户用另一管理员账号提权时，进程用户会变化）
+    let mut resume_action: Option<String> = None;
+    let mut pkg_dir: Option<PathBuf> = None;
+    for arg in std::env::args().skip(1) {
+        if let Some(v) = arg.strip_prefix("--resume=") {
+            resume_action = Some(v.to_string());
+        } else if let Some(v) = arg.strip_prefix("--pkg-dir=") {
+            pkg_dir = Some(PathBuf::from(v));
+        }
+    }
 
     tauri::Builder::default()
         .manage(DownloadState::default())
         .manage(LogState::default())
+        .manage(AppCtx::default())
         .invoke_handler(tauri::generate_handler![
             check_env,
             start_download,
@@ -37,12 +51,20 @@ fn main() {
             get_last_log,
         ])
         .setup(move |app| {
-            if resume_install {
+            // 把透传的包目录存入上下文，后续命令优先使用它
+            if let Some(dir) = pkg_dir {
+                if let Ok(ctx) = app.try_state::<AppCtx>() {
+                    if let Ok(mut guard) = ctx.pkg_dir_override.lock() {
+                        *guard = Some(dir);
+                    }
+                }
+            }
+            // 等前端就绪后派发提权后的续跑动作
+            if let Some(action) = resume_action {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    // 等前端就绪后再通知跳转
-                    std::thread::sleep(std::time::Duration::from_millis(900));
-                    let _ = handle.emit("resume-install", ());
+                    std::thread::sleep(Duration::from_millis(900));
+                    let _ = handle.emit("resume-action", serde_json::json!({ "action": action }));
                 });
             }
             Ok(())

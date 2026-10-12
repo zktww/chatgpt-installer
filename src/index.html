@@ -115,6 +115,12 @@
   .ghost { background:#f1f4f7; color:#374151; margin-right:auto; }
   .ghost:hover { background:#e5eaf0; }
   .ghost:disabled { opacity:.4; cursor:not-allowed; }
+  /* 忙碌遮罩（卸载等长耗时操作） */
+  #busyOverlay { display:none; position:fixed; inset:0; z-index:99;
+    background:rgba(255,255,255,.88); backdrop-filter:blur(2px);
+    align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+  #busyOverlay .spin { width:34px; height:34px; }
+  #busyText { font-size:14px; color:#374151; }
 </style>
 </head>
 <body>
@@ -216,6 +222,8 @@
   </div>
 </div>
 
+<div id="busyOverlay"><div class="spin"></div><div id="busyText">正在处理…</div></div>
+
 <script>
 /* ============================================================
  * 极简前端逻辑：步骤切换 + Tauri IPC。
@@ -299,7 +307,8 @@ function go(n) {
   prevBtn.style.visibility = (cur === 0 || cur === 5) ? 'hidden' : 'visible';
   nextBtn.style.display = (cur === 4) ? 'none' : '';
   nextBtn.textContent = labels[cur] || '完成';
-  nextBtn.disabled = (cur === 1 && !envChecked);
+  // 门禁：环境检测未通过 / 安全校验未完成时不允许下一步
+  nextBtn.disabled = (cur === 1 && !envChecked) || (cur === 3 && !verified);
   if (cur === 1) runEnvCheck();
   if (cur === 2) runDownload();
   if (cur === 3) runVerify();
@@ -375,6 +384,8 @@ async function runVerify() {
     ];
     document.getElementById('verifyList').innerHTML = rows.map(([t, d]) =>
       `<div class="row"><div class="badge ok">✓</div><div><div class="tt">${t}</div><div class="ds">${d}</div></div></div>`).join('');
+    // 校验通过后才放行“开始安装”
+    if (cur === 3) nextBtn.disabled = false;
   } catch (e) { showError(e, 2); }
 }
 
@@ -402,7 +413,8 @@ async function doInstall() {
     const err = e && e.code ? e : { code: 'INSTALL_FAILED', message: String(e), hint: '' };
     if (err.code === 'NEED_ELEVATION') {
       if (confirm('安装需要管理员权限，点击确定后程序将请求提权并自动继续。')) {
-        invoke('restart_elevated_cmd');
+        // 后端会自动把当前用户的安装包目录透传给提权后的进程
+        invoke('restart_elevated_cmd', { action: 'install' });
       }
       return;
     }
@@ -431,16 +443,49 @@ document.getElementById('copyLogBtn').addEventListener('click', async () => {
   } catch (e) { alert('复制失败：' + e); }
 });
 document.getElementById('launchBtn').addEventListener('click', () => invoke('launch_app'));
+
+/* ---------- 卸载 ---------- */
+function showBusy(text) {
+  document.getElementById('busyText').textContent = text || '正在处理…';
+  document.getElementById('busyOverlay').style.display = 'flex';
+}
+function hideBusy() { document.getElementById('busyOverlay').style.display = 'none'; }
+onEventOnce('uninstall-progress', p => showBusy(p.text));
+
+async function doUninstall(removeData) {
+  showBusy('正在卸载…');
+  try {
+    const warnings = await invoke('uninstall_package_cmd', { removeData });
+    hideBusy();
+    alert(warnings && warnings.length
+      ? '卸载完成，但有 ' + warnings.length + ' 项警告，详见诊断日志。'
+      : '卸载完成');
+  } catch (e) {
+    hideBusy();
+    const err = (e && e.code) ? e : { code: 'UNKNOWN', message: String(e), hint: '' };
+    if (err.code === 'NEED_ELEVATION') {
+      if (confirm('卸载需要管理员权限，点击确定后程序将请求提权并自动继续。')) {
+        invoke('restart_elevated_cmd', { action: removeData ? 'uninstall-data' : 'uninstall' });
+      }
+      return;
+    }
+    showError(err, 0);
+  }
+}
 document.getElementById('uninstallLink').addEventListener('click', async () => {
   if (!confirm('确定要卸载 ChatGPT 桌面版吗？')) return;
   const removeData = confirm('是否同时删除登录状态与本地数据？\n确定=全部删除，取消=保留数据');
-  try { await invoke('uninstall_package_cmd', { removeData }); alert('卸载完成'); }
-  catch (e) {
-    if (e && e.code === 'NEED_ELEVATION' && confirm('卸载需要管理员权限，点击确定后程序将请求提权。')) invoke('restart_elevated_cmd');
-    else showError(e, 0);
+  doUninstall(removeData);
+});
+
+/* 提权重启后按动作自动续跑：安装走向导第 5 步，卸载走进度遮罩 */
+onEvent('resume-action', p => {
+  if (!p || !p.action) return;
+  if (p.action === 'install') { go(4); doInstall(); }
+  else if (p.action === 'uninstall' || p.action === 'uninstall-data') {
+    doUninstall(p.action === 'uninstall-data');
   }
 });
-onEvent('resume-install', () => doInstall()); // 提权重启后自动继续
 go(0);
 </script>
 </body>

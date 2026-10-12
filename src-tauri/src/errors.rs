@@ -35,44 +35,45 @@ impl AppError {
 
     /// 把 PowerShell / 部署工具的原始输出映射到已知错误码。
     pub fn from_deploy_output(output: &str) -> Self {
+        // 注意：先转大写再匹配，模式串必须也是大写（"0x" 会变成 "0X"）
         let o = output.to_uppercase();
-        if o.contains("0x80073D02") {
+        if o.contains("0X80073D02") {
             Self::new(
                 "0x80073D02",
                 "ChatGPT 正在运行中，无法覆盖安装",
                 "请完全退出程序（含右下角托盘图标）后重试；或在任务管理器中结束 ChatGPT.exe。",
             )
-        } else if o.contains("0x80073CFD") {
+        } else if o.contains("0X80073CFD") {
             Self::new(
                 "0x80073CFD",
                 "系统禁止安装本地应用包（旁加载被禁用）",
                 "请以管理员身份重新运行本程序，程序会自动放行；或手动到「设置 → 系统 → 开发者选项」开启旁加载。",
             )
-        } else if o.contains("0x800B0109") {
+        } else if o.contains("0X800B0109") {
             Self::new(
                 "0x800B0109",
                 "安装包签名不受信任",
                 "安装包可能在传输中损坏。请删除安装包后重新下载；若反复出现请更换网络环境。",
             )
-        } else if o.contains("0x80073D28") {
+        } else if o.contains("0X80073D28") {
             Self::new(
                 "0x80073D28",
                 "安装需要管理员权限",
                 "请以管理员身份运行本程序后重试。",
             )
-        } else if o.contains("0x80070005") {
+        } else if o.contains("0X80070005") {
             Self::new(
                 "0x80070005",
                 "拒绝访问",
                 "可能是权限不足或安全软件拦截。请以管理员身份运行，或暂时关闭拦截后重试。",
             )
-        } else if o.contains("0x80073CF3") {
+        } else if o.contains("0X80073CF3") {
             Self::new(
                 "0x80073CF3",
                 "安装包依赖缺失或冲突",
                 "请先通过 Windows 更新把系统补到最新，再重试安装。",
             )
-        } else if o.contains("0x80073D06") {
+        } else if o.contains("0X80073D06") {
             Self::new(
                 "0x80073D06",
                 "已安装更新版本的 ChatGPT",
@@ -101,6 +102,12 @@ impl AppError {
                 detail.into()
             ),
         )
+    }
+
+    /// 该错误是否暗示“换管理员身份重试可能成功”。
+    /// 注意：已提权仍报此类错误时，应直接返回原始错误，避免提权死循环。
+    pub fn is_elevation_error(&self) -> bool {
+        matches!(self.code.as_str(), "0x80073D28" | "0x80070005")
     }
 }
 
