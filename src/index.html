@@ -313,8 +313,8 @@ async function demoInvoke(cmd, args) {
   }
   if (cmd === 'get_last_log') return '[demo] log line 1\n[demo] log line 2';
   if (cmd === 'check_update') return {
-    installed: true, installed_version: '1.2025.301.0', has_update: true,
-    note: '发现新版本，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。' };
+    installed: true, installed_version: '1.2025.301.0', latest_version: '26.1007.2314.0', has_update: true,
+    note: '发现新版本：云端 v26.1007.2314.0，本机 v1.2025.301.0。点击「开始更新」重新下载安装（约 800MB，支持断点续传）。' };
   return null;
 }
 

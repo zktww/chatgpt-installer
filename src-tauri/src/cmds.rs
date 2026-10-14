@@ -239,6 +239,7 @@ fn record_install(app: &AppHandle, msix: &std::path::Path, version: &str) {
 pub struct UpdateCheck {
     pub installed: bool,
     pub installed_version: Option<String>,
+    pub latest_version: Option<String>,
     pub has_update: bool,
     pub note: String,
 }
@@ -248,8 +249,15 @@ pub async fn check_update(app: AppHandle) -> Result<UpdateCheck, AppError> {
     blocking(move || run_check_update(&app)).await
 }
 
-/// 对云端 MSIX 做 HEAD 请求取当前 ETag；拿不到返回 None（不致命）。
-fn head_etag(url: &str) -> Option<String> {
+/// 云端 MSIX 的 HEAD 信息：官方版本号 + ETag。
+/// 版本号来自 Azure Blob 自定义元数据 `x-ms-meta-package_version`，
+/// 由官方发布流水线写入（x64/arm64 实测一致）。
+struct CdnInfo {
+    version: Option<String>,
+    etag: Option<String>,
+}
+
+fn head_cdn_info(url: &str) -> Option<CdnInfo> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
@@ -258,11 +266,30 @@ fn head_etag(url: &str) -> Option<String> {
     if !resp.status().is_success() {
         return None;
     }
-    resp.headers()
-        .get(reqwest::header::ETAG)?
-        .to_str()
-        .ok()
-        .map(|s| s.to_string())
+    let h = resp.headers();
+    let version = h
+        .get("x-ms-meta-package_version")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let etag = h
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    Some(CdnInfo { version, etag })
+}
+
+/// 比较四段版本号（如 26.1007.2314.0）；解析失败返回 None。
+fn cmp_versions(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    let parse = |s: &str| -> Option<Vec<u64>> {
+        s.split('.').map(|p| p.parse::<u64>().ok()).collect()
+    };
+    let mut va = parse(a)?;
+    let mut vb = parse(b)?;
+    let n = va.len().max(vb.len());
+    va.resize(n, 0);
+    vb.resize(n, 0);
+    Some(va.cmp(&vb))
 }
 
 fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
@@ -271,6 +298,7 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
         return Ok(UpdateCheck {
             installed: false,
             installed_version: None,
+            latest_version: None,
             has_update: false,
             note: "本机未安装 ChatGPT，直接点击「开始安装」即可装上最新版。".into(),
         });
@@ -301,6 +329,7 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
         return Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver),
+            latest_version: None,
             has_update: false,
             note,
         });
@@ -314,24 +343,63 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
     })?;
     // 有版本漂移时，把提示拼在检查结果前面
     let prefix = drift_note.map(|d| format!("{d} ")).unwrap_or_default();
-    match head_etag(url) {
-        None => Ok(UpdateCheck {
+    let info = match head_cdn_info(url) {
+        Some(i) => i,
+        None => {
+            return Ok(UpdateCheck {
+                installed: true,
+                installed_version: Some(ver.clone()),
+                latest_version: None,
+                has_update: false,
+                note: format!(
+                    "{prefix}本机版本 v{ver}；网络异常，无法获取云端版本信息，请稍后重试。"
+                ),
+            })
+        }
+    };
+    // 优先用官方版本号做精确对比
+    if let Some(cdn_ver) = info.version {
+        let (has_update, note) = match cmp_versions(&cdn_ver, &ver) {
+            Some(std::cmp::Ordering::Greater) => (
+                true,
+                format!(
+                    "{prefix}发现新版本：云端 v{cdn_ver}，本机 v{ver}。点击「开始更新」重新下载安装（约 800MB，支持断点续传）。"
+                ),
+            ),
+            Some(std::cmp::Ordering::Less) => (
+                false,
+                format!("{prefix}本机 v{ver} 比云端 v{cdn_ver} 更新，无需操作。"),
+            ),
+            _ => (
+                false,
+                format!("{prefix}已是最新版本（v{ver}），无需更新。"),
+            ),
+        };
+        return Ok(UpdateCheck {
             installed: true,
-            installed_version: Some(ver.clone()),
-            has_update: false,
-            note: format!("{prefix}本机版本 v{ver}；网络异常，无法获取云端版本信息，请稍后重试。"),
-        }),
+            installed_version: Some(ver),
+            latest_version: Some(cdn_ver),
+            has_update,
+            note,
+        });
+    }
+    // 回退：ETag 启发式（官方若去掉版本元数据时仍可用）
+    match info.etag {
         Some(cur) if cur == stored => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver.clone()),
+            latest_version: None,
             has_update: false,
-            note: format!("{prefix}已是最新版本（v{ver}），无需更新。"),
+            note: format!("{prefix}云端安装包无变化，本机 v{ver} 已是最新。"),
         }),
-        Some(_) => Ok(UpdateCheck {
+        _ => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver),
+            latest_version: None,
             has_update: true,
-            note: format!("{prefix}发现新版本，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。"),
+            note: format!(
+                "{prefix}云端安装包有变化，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。"
+            ),
         }),
     }
 }
