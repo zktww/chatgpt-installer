@@ -176,3 +176,24 @@ fn run_ps(script: &str) -> Result<std::process::Output, AppError> {
 fn ps_escape(s: &str) -> String {
     s.replace('\'', "''")
 }
+
+/// 本机已安装的 ChatGPT 版本（Get-AppxPackage）；未安装返回 None。
+#[cfg(windows)]
+pub fn installed_app_version() -> Option<String> {
+    let out =
+        run_ps("(Get-AppxPackage -Name 'OpenAI.Codex' | Select-Object -First 1).Version").ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+#[cfg(not(windows))]
+pub fn installed_app_version() -> Option<String> {
+    None
+}

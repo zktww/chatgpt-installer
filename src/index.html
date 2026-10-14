@@ -162,7 +162,8 @@
           <div class="card"><div class="ic">⏸️</div><h3>断点续传</h3><p>800MB 大安装包，断网或关闭后重新打开自动续传</p></div>
         </div>
         <div class="sysreq">适用于 Windows 10（19041+）/ Windows 11 · x64 / ARM64　·　开源免费（MIT）<br>
-          <a id="uninstallLink">已安装？点此卸载 / 重新安装</a></div>
+          <a id="uninstallLink">已安装？点此卸载 / 重新安装</a>　·　<a id="checkUpdateLink">检查更新</a>
+          <div id="updateResult" style="line-height:1.8"></div></div>
       </div>
     </div>
 
@@ -311,6 +312,9 @@ async function demoInvoke(cmd, args) {
     return null;
   }
   if (cmd === 'get_last_log') return '[demo] log line 1\n[demo] log line 2';
+  if (cmd === 'check_update') return {
+    installed: true, installed_version: '1.2025.301.0', has_update: true,
+    note: '发现新版本，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。' };
   return null;
 }
 
@@ -558,6 +562,24 @@ document.getElementById('uninstallLink').addEventListener('click', async () => {
   if (!confirm('确定要卸载 ChatGPT 桌面版吗？')) return;
   const removeData = confirm('是否同时删除登录状态与本地数据？\n确定=全部删除，取消=保留数据');
   doUninstall(removeData);
+});
+
+/* ---------- 检查更新 ---------- */
+document.getElementById('checkUpdateLink').addEventListener('click', async () => {
+  const box = document.getElementById('updateResult');
+  box.innerHTML = '<span style="color:#9aa5b1">正在检查更新…</span>';
+  try {
+    const r = await invoke('check_update');
+    let html = esc(r.note || '');
+    if (r.has_update) {
+      html += '<br><button class="btn primary" id="startUpdateBtn" style="margin-top:8px">开始更新 →</button>';
+    }
+    box.innerHTML = html;
+    const btn = document.getElementById('startUpdateBtn');
+    if (btn) btn.addEventListener('click', () => { dlStarted = false; go(2); });
+  } catch (e) {
+    box.innerHTML = '<span style="color:#c2410c">检查更新失败：' + esc(e.message || e) + '</span>';
+  }
 });
 
 /* 提权重启后按动作自动续跑：安装走向导第 5 步，卸载走进度遮罩 */

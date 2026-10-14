@@ -6,7 +6,9 @@
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
+use std::time::Duration;
 
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::constants::*;
@@ -17,7 +19,8 @@ use crate::elevate::restart_elevated;
 use crate::env_check::{check_env as run_env_check, EnvItem};
 use crate::errors::AppError;
 use crate::install::{
-    emit_stage, ensure_license, install_for_user, provision_all_users, uninstall_package,
+    emit_stage, ensure_license, install_for_user, installed_app_version, provision_all_users,
+    uninstall_package,
 };
 use crate::verify::{verify_package as run_verify_package, VerifyInfo};
 
@@ -208,10 +211,6 @@ pub async fn verify_package(app: AppHandle) -> Result<VerifyInfo, AppError> {
     .await
 }
 
-/// 安装主流程（后台线程执行）：
-/// 1. 强制安全校验（签名/发布者/包身份），任何入口都必须通过；
-/// 2. 已提权：当前用户注册 + 整机预置；
-/// 3. 未提权：先尝试免提权为当前用户安装，失败且疑似权限问题时才要求提权。
 /// 安装成功后清理安装包文件（800MB+），只保留设置文件。
 /// 卸载/重装都不需要这些文件，重装会重新下载。
 fn cleanup_package_files(app: &AppHandle, msix: &std::path::Path) {
@@ -225,6 +224,101 @@ fn cleanup_package_files(app: &AppHandle, msix: &std::path::Path) {
     push_log(app, "[install] package files cleaned");
 }
 
+/// 安装成功后记录包 ETag 与版本，供“检查更新”对比云端。
+/// 失败不致命，只影响下次检查更新的准确性。
+fn record_install(app: &AppHandle, msix: &std::path::Path, version: &str) {
+    let etag = std::fs::read_to_string(msix.with_extension("etag"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    crate::settings::save_install_record(app, etag.as_deref(), version);
+    push_log(app, &format!("[install] recorded version {}", version));
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateCheck {
+    pub installed: bool,
+    pub installed_version: Option<String>,
+    pub has_update: bool,
+    pub note: String,
+}
+
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<UpdateCheck, AppError> {
+    blocking(move || run_check_update(&app)).await
+}
+
+/// 对云端 MSIX 做 HEAD 请求取当前 ETag；拿不到返回 None（不致命）。
+fn head_etag(url: &str) -> Option<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .ok()?;
+    let resp = client.head(url).send().ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    resp.headers()
+        .get(reqwest::header::ETAG)?
+        .to_str()
+        .ok()
+        .map(|s| s.to_string())
+}
+
+fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
+    let installed_version = installed_app_version();
+    let Some(ver) = installed_version else {
+        return Ok(UpdateCheck {
+            installed: false,
+            installed_version: None,
+            has_update: false,
+            note: "本机未安装 ChatGPT，直接点击「开始安装」即可装上最新版。".into(),
+        });
+    };
+    let stored_etag = crate::settings::load_install_record(app).and_then(|r| r.etag);
+    let Some(stored) = stored_etag else {
+        return Ok(UpdateCheck {
+            installed: true,
+            installed_version: Some(ver.clone()),
+            has_update: false,
+            note: format!(
+                "本机已安装 v{ver}（非本工具安装，无法判断云端是否有新版）。如需确保最新，可直接重新运行本工具覆盖安装。"
+            ),
+        });
+    };
+    let url = msix_url_for_arch(std::env::consts::ARCH).ok_or_else(|| {
+        AppError::new(
+            "NO_PACKAGE",
+            "不支持的 CPU 架构",
+            "当前架构没有对应的官方安装包。",
+        )
+    })?;
+    match head_etag(url) {
+        None => Ok(UpdateCheck {
+            installed: true,
+            installed_version: Some(ver.clone()),
+            has_update: false,
+            note: format!("本机版本 v{ver}；网络异常，无法获取云端版本信息，请稍后重试。"),
+        }),
+        Some(cur) if cur == stored => Ok(UpdateCheck {
+            installed: true,
+            installed_version: Some(ver.clone()),
+            has_update: false,
+            note: format!("已是最新版本（v{ver}），无需更新。"),
+        }),
+        Some(_) => Ok(UpdateCheck {
+            installed: true,
+            installed_version: Some(ver),
+            has_update: true,
+            note: "发现新版本，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。".into(),
+        }),
+    }
+}
+
+/// 安装主流程（后台线程执行）：
+/// 1. 强制安全校验（签名/发布者/包身份），任何入口都必须通过；
+/// 2. 已提权：当前用户注册 + 整机预置；
+/// 3. 未提权：先尝试免提权为当前用户安装，失败且疑似权限问题时才要求提权。
 fn install_flow(app: &AppHandle) -> Result<(), AppError> {
     let msix = msix_path(app)?;
     if !msix.exists() {
@@ -254,6 +348,7 @@ fn install_flow(app: &AppHandle) -> Result<(), AppError> {
         }
         emit_stage(app, 3, "安装完成");
         push_log(app, "[install] success (elevated)");
+        record_install(app, &msix, &info.version);
         cleanup_package_files(app, &msix);
         return Ok(());
     }
@@ -264,6 +359,7 @@ fn install_flow(app: &AppHandle) -> Result<(), AppError> {
         Ok(()) => {
             emit_stage(app, 3, "安装完成");
             push_log(app, "[install] success (per-user, no elevation)");
+            record_install(app, &msix, &info.version);
             cleanup_package_files(app, &msix);
             Ok(())
         }
