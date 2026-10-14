@@ -275,15 +275,34 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
             note: "本机未安装 ChatGPT，直接点击「开始安装」即可装上最新版。".into(),
         });
     };
-    let stored_etag = crate::settings::load_install_record(app).and_then(|r| r.etag);
+    let record = crate::settings::load_install_record(app);
+    // 版本漂移检测：本机当前版本 vs 本工具上次安装记录的版本。
+    // 微软商店自动更新等其他渠道会改变本机版本，我们控制不了，但能识别出来并如实告知。
+    let drift_note: Option<String> = record
+        .as_ref()
+        .and_then(|r| r.version.clone())
+        .filter(|rv| rv != &ver)
+        .map(|rv| {
+            format!(
+                "检测到本机 ChatGPT 已变为 v{ver}（本工具上次安装的是 v{rv}），可能是通过微软商店等其他渠道更新。"
+            )
+        });
+    let stored_etag = record.as_ref().and_then(|r| r.etag.clone());
     let Some(stored) = stored_etag else {
+        // 无 ETag 记录：要么非本工具安装，要么安装时没拿到 ETag
+        let base = match record {
+            Some(_) => format!("本机已安装 v{ver}，但缺少上次安装的云端标识，无法判断云端是否有新版。"),
+            None => format!("本机已安装 v{ver}（非本工具安装，无法判断云端是否有新版）。"),
+        };
+        let note = match drift_note {
+            Some(d) => format!("{d}如需确保最新，可直接重新运行本工具覆盖安装。"),
+            None => format!("{base}如需确保最新，可直接重新运行本工具覆盖安装。"),
+        };
         return Ok(UpdateCheck {
             installed: true,
-            installed_version: Some(ver.clone()),
+            installed_version: Some(ver),
             has_update: false,
-            note: format!(
-                "本机已安装 v{ver}（非本工具安装，无法判断云端是否有新版）。如需确保最新，可直接重新运行本工具覆盖安装。"
-            ),
+            note,
         });
     };
     let url = msix_url_for_arch(std::env::consts::ARCH).ok_or_else(|| {
@@ -293,24 +312,26 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
             "当前架构没有对应的官方安装包。",
         )
     })?;
+    // 有版本漂移时，把提示拼在检查结果前面
+    let prefix = drift_note.map(|d| format!("{d} ")).unwrap_or_default();
     match head_etag(url) {
         None => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver.clone()),
             has_update: false,
-            note: format!("本机版本 v{ver}；网络异常，无法获取云端版本信息，请稍后重试。"),
+            note: format!("{prefix}本机版本 v{ver}；网络异常，无法获取云端版本信息，请稍后重试。"),
         }),
         Some(cur) if cur == stored => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver.clone()),
             has_update: false,
-            note: format!("已是最新版本（v{ver}），无需更新。"),
+            note: format!("{prefix}已是最新版本（v{ver}），无需更新。"),
         }),
         Some(_) => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver),
             has_update: true,
-            note: "发现新版本，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。".into(),
+            note: format!("{prefix}发现新版本，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。"),
         }),
     }
 }
