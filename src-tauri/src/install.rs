@@ -45,9 +45,10 @@ pub fn ensure_license(app: &AppHandle, dir: &Path) -> Result<std::path::PathBuf,
 /// 返回的错误已经过 from_deploy_output 映射，可直接展示。
 #[cfg(windows)]
 pub fn install_for_user(app: &AppHandle, msix: &Path) -> Result<(), AppError> {
+    // 路径用通配符安全引用：Add-AppxPackage -Path 会解释 [ ] 为通配符
     let ps = format!(
-        "Add-AppxPackage -Path '{}' -ForceTargetApplicationShutdown",
-        ps_escape(&msix.to_string_lossy())
+        "Add-AppxPackage -Path {} -ForceTargetApplicationShutdown",
+        ps_quote_literal(&msix.to_string_lossy())
     );
     let out = run_ps(&ps)?;
     if !out.status.success() {
@@ -65,9 +66,9 @@ pub fn install_for_user(app: &AppHandle, msix: &Path) -> Result<(), AppError> {
 pub fn provision_all_users(msix: &Path, license: &Path) -> Vec<String> {
     let mut warnings = Vec::new();
     let ps = format!(
-        "Add-AppxProvisionedPackage -Online -PackagePath '{}' -LicensePath '{}'",
-        ps_escape(&msix.to_string_lossy()),
-        ps_escape(&license.to_string_lossy())
+        "Add-AppxProvisionedPackage -Online -PackagePath {} -LicensePath {}",
+        ps_quote_literal(&msix.to_string_lossy()),
+        ps_quote_literal(&license.to_string_lossy())
     );
     match run_ps(&ps) {
         Ok(o) if o.status.success() => {}
@@ -141,7 +142,26 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
                     text: "正在清理用户数据…".into(),
                 },
             );
-            let script = "Remove-Item -Recurse -Force \"$env:LOCALAPPDATA\\Packages\\OpenAI.Codex_*\" -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force \"$env:LOCALAPPDATA\\OpenAI\" -ErrorAction SilentlyContinue";
+            // 跨用户提权时清理原用户的数据，而非提权用的管理员账号的 $env:LOCALAPPDATA
+            let base_ps: String = match crate::cmds::data_dir_override(app) {
+                Some(d) => {
+                    // 字面引用目录（防 [ ] 通配），但保留末尾有意的 *（匹配版本号后缀）
+                    let mut s = String::from("\"");
+                    for c in d.to_string_lossy().chars() {
+                        if matches!(c, '"' | '`' | '$' | '[' | ']') {
+                            s.push('`');
+                        }
+                        s.push(c);
+                    }
+                    s.push('"');
+                    s
+                }
+                None => "\"$env:LOCALAPPDATA\"".to_string(),
+            };
+            let script = format!(
+                "Remove-Item -Recurse -Force {}\\Packages\\OpenAI.Codex_* -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force {}\\OpenAI -ErrorAction SilentlyContinue",
+                base_ps, base_ps
+            );
             if let Err(e) = run_ps(script) {
                 warnings.push(format!("清理用户数据：{}", e));
             }
@@ -172,9 +192,21 @@ fn run_ps(script: &str) -> Result<std::process::Output, AppError> {
         })
 }
 
+/// PowerShell 双引号字面路径：转义 ` " $ 及通配符 [ ] * ?，确保按字面路径处理。
+/// （单引号字符串里反引号无转义作用，故用双引号；
+/// Windows 文件名本身不允许出现 * ? "，实际要防的是 [ ]。）
 #[cfg(windows)]
-fn ps_escape(s: &str) -> String {
-    s.replace('\'', "''")
+pub(crate) fn ps_quote_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        if matches!(c, '"' | '`' | '$' | '[' | ']' | '*' | '?') {
+            out.push('`');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
 }
 
 /// 本机已安装的 ChatGPT 版本（Get-AppxPackage）；未安装返回 None。

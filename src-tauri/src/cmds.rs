@@ -34,6 +34,16 @@ pub struct LogState(pub Mutex<String>);
 #[derive(Default)]
 pub struct AppCtx {
     pub pkg_dir_override: Mutex<Option<PathBuf>>,
+    /// 原用户的 LOCALAPPDATA（--data-dir 透传）：跨用户提权时，
+    /// 设置文件与安装记录写回原用户位置，而非管理员账号的 AppData。
+    pub data_dir_override: Mutex<Option<PathBuf>>,
+}
+
+/// 原用户的 LOCALAPPDATA（仅跨用户提权时有值）；无值时调用方回退 $env:LOCALAPPDATA。
+pub(crate) fn data_dir_override(app: &AppHandle) -> Option<PathBuf> {
+    app.try_state::<AppCtx>()
+        .and_then(|ctx| ctx.data_dir_override.lock().ok())
+        .and_then(|guard| guard.clone())
 }
 
 fn push_log(app: &AppHandle, line: &str) {
@@ -106,8 +116,8 @@ where
 }
 
 #[tauri::command]
-pub async fn check_env() -> Result<Vec<EnvItem>, AppError> {
-    blocking(|| Ok(run_env_check())).await
+pub async fn check_env(app: AppHandle) -> Result<Vec<EnvItem>, AppError> {
+    blocking(move || Ok(run_env_check(&app))).await
 }
 
 #[tauri::command]
@@ -122,8 +132,16 @@ pub fn start_download(app: AppHandle) -> Result<DownloadInfo, AppError> {
     }
     state.running.store(true, Ordering::SeqCst);
     state.cancel.store(false, Ordering::SeqCst);
+    state.paused.store(false, Ordering::SeqCst);
 
-    let (url, dest) = download::resolve_target(&app)?;
+    let (url, dest) = match download::resolve_target(&app) {
+        Ok(t) => t,
+        Err(e) => {
+            // resolve 失败也要复位 running，否则之后每次点下载都会报 BUSY
+            state.running.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+    };
     let resumed_from = std::fs::metadata(dest.with_extension("part"))
         .map(|m| m.len())
         .unwrap_or(0);
@@ -157,8 +175,14 @@ pub fn start_download(app: AppHandle) -> Result<DownloadInfo, AppError> {
                 let _ = app2.emit("download-done", serde_json::json!({ "total": total }));
             }
             Err(e) => {
-                push_log(&app2, &format!("[download] error: {}", e));
-                let _ = app2.emit("download-error", e);
+                if e.code == "PAUSED" {
+                    // 用户暂停不是错误：前端显示"已暂停"状态，不进失败页
+                    push_log(&app2, "[download] paused by user");
+                    let _ = app2.emit("download-paused", serde_json::json!({}));
+                } else {
+                    push_log(&app2, &format!("[download] error: {}", e));
+                    let _ = app2.emit("download-error", e);
+                }
             }
         }
     });
@@ -174,6 +198,8 @@ pub fn start_download(app: AppHandle) -> Result<DownloadInfo, AppError> {
 #[tauri::command]
 pub fn pause_download(app: AppHandle) -> Result<(), AppError> {
     let state: State<DownloadState> = app.state();
+    // 暂停与取消共用 cancel 停掉工作线程，但用 paused 区分事件：暂停不进失败页
+    state.paused.store(true, Ordering::SeqCst);
     state.cancel.store(true, Ordering::SeqCst);
     push_log(&app, "[download] paused by user");
     Ok(())
@@ -182,6 +208,7 @@ pub fn pause_download(app: AppHandle) -> Result<(), AppError> {
 #[tauri::command]
 pub fn cancel_download(app: AppHandle) -> Result<(), AppError> {
     let state: State<DownloadState> = app.state();
+    state.paused.store(false, Ordering::SeqCst);
     state.cancel.store(true, Ordering::SeqCst);
     // 给工作线程一点时间退出，避免删文件中
     std::thread::sleep(std::time::Duration::from_millis(300));
@@ -315,25 +342,8 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
                 "检测到本机 ChatGPT 已变为 v{ver}（本工具上次安装的是 v{rv}），可能是通过微软商店等其他渠道更新。"
             )
         });
-    let stored_etag = record.as_ref().and_then(|r| r.etag.clone());
-    let Some(stored) = stored_etag else {
-        // 无 ETag 记录：要么非本工具安装，要么安装时没拿到 ETag
-        let base = match record {
-            Some(_) => format!("本机已安装 v{ver}，但缺少上次安装的云端标识，无法判断云端是否有新版。"),
-            None => format!("本机已安装 v{ver}（非本工具安装，无法判断云端是否有新版）。"),
-        };
-        let note = match drift_note {
-            Some(d) => format!("{d}如需确保最新，可直接重新运行本工具覆盖安装。"),
-            None => format!("{base}如需确保最新，可直接重新运行本工具覆盖安装。"),
-        };
-        return Ok(UpdateCheck {
-            installed: true,
-            installed_version: Some(ver),
-            latest_version: None,
-            has_update: false,
-            note,
-        });
-    };
+    // 每次检查都先请求 CDN 拿官方版本元数据，不依赖历史 ETag。
+    // v1.0.0 老用户没有 ETag 记录，也能用 x-ms-meta-package_version 做精确版本对比。
     let url = msix_url_for_arch(std::env::consts::ARCH).ok_or_else(|| {
         AppError::new(
             "NO_PACKAGE",
@@ -383,22 +393,33 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
             note,
         });
     }
-    // 回退：ETag 启发式（官方若去掉版本元数据时仍可用）
-    match info.etag {
-        Some(cur) if cur == stored => Ok(UpdateCheck {
+    // 回退：ETag 启发式（官方若去掉版本元数据时仍可用）。
+    // 只有"云端 ETag 与历史 ETag 都在"时才能对比；缺任何一边都如实告知无法判断。
+    let stored_etag = record.as_ref().and_then(|r| r.etag.clone());
+    match (info.etag, stored_etag) {
+        (Some(cur), Some(stored)) if cur == stored => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver.clone()),
             latest_version: None,
             has_update: false,
             note: format!("{prefix}云端安装包无变化，本机 v{ver} 已是最新。"),
         }),
-        _ => Ok(UpdateCheck {
+        (Some(_), Some(_)) => Ok(UpdateCheck {
             installed: true,
             installed_version: Some(ver),
             latest_version: None,
             has_update: true,
             note: format!(
                 "{prefix}云端安装包有变化，点击「开始更新」重新下载安装（约 800MB，支持断点续传）。"
+            ),
+        }),
+        _ => Ok(UpdateCheck {
+            installed: true,
+            installed_version: Some(ver.clone()),
+            latest_version: None,
+            has_update: false,
+            note: format!(
+                "{prefix}本机已安装 v{ver}，但缺少上次安装的云端标识、云端也未返回版本信息，无法判断是否有新版。如需确保最新，可直接重新运行本工具覆盖安装。"
             ),
         }),
     }
@@ -472,10 +493,22 @@ pub fn restart_elevated_cmd(app: AppHandle, action: String) -> Result<(), AppErr
     #[cfg(windows)]
     {
         let dir = pkg_dir(&app)?;
-        restart_elevated(&[
-            &format!("--resume={}", action),
-            &format!("--pkg-dir={}", dir.display()),
-        ])
+        let mut args = vec![
+            format!("--resume={}", action),
+            format!("--pkg-dir={}", dir.display()),
+            // 提权成功后，新进程凭此结束掉当前（未提权的）进程；
+            // 用户在 UAC 点"否"时不会有新进程，当前进程继续存活
+            format!("--parent-pid={}", std::process::id()),
+        ];
+        // 原用户的 LOCALAPPDATA：用另一管理员账号提权时进程用户会变化，
+        // 设置/安装记录/数据清理必须作用回原用户，不能跟着管理员账号走
+        if let Ok(dd) = std::env::var("LOCALAPPDATA") {
+            if !dd.is_empty() {
+                args.push(format!("--data-dir={dd}"));
+            }
+        }
+        restart_elevated(&args);
+        Ok(())
     }
     #[cfg(not(windows))]
     {

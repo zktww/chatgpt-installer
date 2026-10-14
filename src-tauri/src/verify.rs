@@ -48,9 +48,9 @@ pub fn verify_package(msix_path: &Path) -> Result<VerifyInfo, AppError> {
             ));
         }
 
-        // 1. Authenticode 签名状态
+        // 1. Authenticode 签名状态（-LiteralPath：路径中的 [ ] 不被当作通配符）
         let status = ps_text(&format!(
-            "(Get-AuthenticodeSignature -FilePath '{}').Status",
+            "(Get-AuthenticodeSignature -LiteralPath '{}').Status",
             ps_escape(&msix_path.to_string_lossy())
         ))?;
         if status.trim() != "Valid" {
@@ -63,7 +63,7 @@ pub fn verify_package(msix_path: &Path) -> Result<VerifyInfo, AppError> {
 
         // 2. 发布者必须为 OpenAI 的商店发布者标识
         let subject = ps_text(&format!(
-            "(Get-AuthenticodeSignature -FilePath '{}').SignerCertificate.Subject",
+            "(Get-AuthenticodeSignature -LiteralPath '{}').SignerCertificate.Subject",
             ps_escape(&msix_path.to_string_lossy())
         ))?;
         if !subject.contains(EXPECTED_PUBLISHER_CN) {

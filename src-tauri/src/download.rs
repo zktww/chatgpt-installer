@@ -20,6 +20,8 @@ use crate::errors::AppError;
 pub struct DownloadState {
     pub cancel: AtomicBool,
     pub running: AtomicBool,
+    /// 暂停标记：与 cancel 共用停掉工作线程，但事件走 download-paused 而非 download-error
+    pub paused: AtomicBool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,11 +94,18 @@ pub fn run_download(app: &AppHandle, url: &str, dest: &Path) -> Result<u64, AppE
 
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
+        // 大文件下载必须禁用 reqwest 默认的 30 秒总超时，否则慢速连接下 800MB 必被掐断；
+        // 中断后靠断点续传恢复。HEAD 等小请求单独设超时。
+        .timeout(None)
         .build()
         .map_err(|e| AppError::network(e.to_string()))?;
 
     // HEAD 拿总大小与当前 ETag（失败不致命）
-    let head = client.head(url).send().ok();
+    let head = client
+        .head(url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .ok();
     let mut total: u64 = head
         .as_ref()
         .and_then(|r| header_u64(r, reqwest::header::CONTENT_LENGTH.as_str()))
@@ -196,7 +205,12 @@ pub fn run_download(app: &AppHandle, url: &str, dest: &Path) -> Result<u64, AppE
     let mut buf = [0u8; 128 * 1024];
     loop {
         if state.cancel.load(Ordering::SeqCst) {
-            return Err(AppError::cancelled());
+            // 暂停与取消都停掉工作线程，但暂停走 PAUSED 事件（前端显示"已暂停"而非失败页）
+            return Err(if state.paused.load(Ordering::SeqCst) {
+                AppError::paused()
+            } else {
+                AppError::cancelled()
+            });
         }
         let n = resp
             .read(&mut buf)

@@ -288,7 +288,7 @@ async function demoInvoke(cmd, args) {
   if (cmd === 'check_env') return [
     { id:'os', title:'操作系统', detail:'Windows 11 24H2（Build 26100），满足要求', status:'ok' },
     { id:'arch', title:'CPU 架构', detail:'x64，已自动匹配安装包 ChatGPT-x64.msix', status:'ok' },
-    { id:'disk', title:'磁盘空间', detail:'C 盘可用 128.4 GB（需要 ≥ 3 GB）', status:'ok' },
+    { id:'disk', title:'磁盘空间', detail:'C: 盘可用 128.4 GB（需要 ≥ 3 GB）', status:'ok' },
     { id:'net', title:'网络连通', detail:'官方 CDN 可达，延迟约 86ms', status:'ok' },
     { id:'admin', title:'管理员权限', detail:'当前为普通权限，安装步骤开始时将请求一次提权', status:'warn' },
   ];
@@ -312,6 +312,12 @@ async function demoInvoke(cmd, args) {
     return null;
   }
   if (cmd === 'get_last_log') return '[demo] log line 1\n[demo] log line 2';
+  if (cmd === 'pause_download') {
+    // 演示：停掉模拟下载计时器，触发暂停事件（与真实后端的 download-paused 对齐）
+    demoTimers.forEach(clearTimeout); demoTimers.length = 0;
+    setTimeout(() => fireDemo('download-paused', {}), 300);
+    return null;
+  }
   if (cmd === 'check_update') return {
     installed: true, installed_version: '1.2025.301.0', latest_version: '26.1007.2314.0', has_update: true,
     note: '发现新版本：云端 v26.1007.2314.0，本机 v1.2025.301.0。点击「开始更新」重新下载安装（约 800MB，支持断点续传）。' };
@@ -396,6 +402,10 @@ async function runDownload() {
   });
   onEventOnce('download-done', () => { setDl(1, 0, 0, '下载完成'); });
   onEventOnce('download-error', e => showError(e, 2));
+  // 用户暂停不是错误：显示"已暂停"状态，不进失败页（可重复暂停/继续，监听器常驻）
+  onEventOnce('download-paused', () => {
+    document.getElementById('dlStats').innerHTML = '<span><b>已暂停</b></span><span>进度已保留，点击继续可恢复下载</span>';
+  });
 }
 function setDl(ratio, dl, total, note) {
   document.getElementById('dlBar').style.width = (ratio * 100).toFixed(1) + '%';
@@ -482,7 +492,9 @@ async function doInstall() {
     const err = e && e.code ? e : { code: 'INSTALL_FAILED', message: String(e), hint: '' };
     if (err.code === 'NEED_ELEVATION') {
       if (confirm('安装需要管理员权限，点击确定后程序将请求提权并自动继续。')) {
-        // 后端会自动把当前用户的安装包目录透传给提权后的进程
+        // 后端会自动把当前用户的安装包目录透传给提权后的进程；
+        // 提权成功后新进程会接管并结束当前进程；UAC 点"否"则停留本页，可返回重试
+        document.getElementById('instTxt').textContent = '已请求提权，请在系统弹窗中点击「是」。如点了「否」，可点左下角「上一步」返回后重试。';
         invoke('restart_elevated_cmd', { action: 'install' });
       }
       return;
@@ -552,6 +564,8 @@ async function doUninstall(removeData) {
     if (err.code === 'NEED_ELEVATION') {
       if (confirm('卸载需要管理员权限，点击确定后程序将请求提权并自动继续。')) {
         invoke('restart_elevated_cmd', { action: removeData ? 'uninstall-data' : 'uninstall' });
+        // 提权成功后新进程会接管；UAC 点"否"则无事发生，可重新操作
+        alert('已请求提权，请在系统弹窗中点击「是」。如点了「否」，可重新点击卸载再试一次。');
       }
       return;
     }

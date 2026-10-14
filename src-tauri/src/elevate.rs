@@ -13,15 +13,20 @@ use std::os::windows::process::CommandExt;
 const NO_WINDOW: u32 = 0x08000000;
 
 /// 是否已具备管理员权限。
-/// `net session` 是经典技巧：成功返回 0 仅当提权后。
+/// 用当前 token 的管理员组成员资格判断，不依赖 LanmanServer 服务
+///（`net session` 在该服务被禁用时会误判为非管理员）。
 #[cfg(windows)]
 pub fn is_admin() -> bool {
-    std::process::Command::new("net")
-        .arg("session")
+    let out = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+        ])
         .creation_flags(NO_WINDOW)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+        .output();
+    matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).trim().eq_ignore_ascii_case("true"))
 }
 
 #[cfg(not(windows))]
@@ -30,11 +35,18 @@ pub fn is_admin() -> bool {
 }
 
 /// 以管理员身份重启本程序（UAC 弹窗），并透传参数。
-/// 成功时当前进程直接退出，不返回。
+/// 每个参数单独加双引号，避免路径含空格被拆散
+///（Windows 文件名不允许出现 `"`，无需转义引号本身）。
+/// 只负责发起提权，不再无条件退出当前进程：
+/// 用户在 UAC 点"否"时本进程继续存活；提权成功后，新进程凭 --parent-pid 结束掉本进程。
 #[cfg(windows)]
-pub fn restart_elevated(extra_args: &[&str]) -> ! {
+pub fn restart_elevated(extra_args: &[String]) {
     let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from(""));
-    let args = extra_args.join(" ");
+    let args = extra_args
+        .iter()
+        .map(|a| format!("\"{a}\""))
+        .collect::<Vec<_>>()
+        .join(" ");
     let script = format!(
         "Start-Process -FilePath '{}' -ArgumentList '{}' -Verb RunAs",
         exe.display().to_string().replace('\'', "''"),
@@ -44,6 +56,4 @@ pub fn restart_elevated(extra_args: &[&str]) -> ! {
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .creation_flags(NO_WINDOW)
         .spawn();
-    // 无论提权是否成功，当前实例都退出，避免出现两个实例
-    std::process::exit(0);
 }

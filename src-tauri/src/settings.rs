@@ -14,6 +14,15 @@ fn default_data_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
         .path()
         .app_local_data_dir()
         .map_err(|e| AppError::new("IO_ERROR", "无法确定数据目录", e.to_string()))?;
+    // 跨用户提权时（--data-dir 透传），设置与安装记录写回原用户的 AppData，
+    // 而不是提权用的管理员账号的 AppData，否则"检查更新"会对不上记录
+    let dir = match crate::cmds::data_dir_override(app) {
+        Some(orig) => match dir.file_name() {
+            Some(leaf) => orig.join(leaf),
+            None => orig,
+        },
+        None => dir,
+    };
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::new("IO_ERROR", "无法创建数据目录", e.to_string()))?;
     Ok(dir)

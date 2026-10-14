@@ -1,11 +1,14 @@
 //! 环境检测：系统版本、架构、磁盘空间、网络连通性、管理员权限。
 use serde::Serialize;
+use tauri::AppHandle;
 
 use crate::constants::*;
 use crate::elevate::is_admin;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct EnvItem {
@@ -26,11 +29,11 @@ fn item(id: &'static str, title: &'static str, detail: String, status: &'static 
 }
 
 /// 依次执行全部检查项。任一 fail 都应阻止进入下一步。
-pub fn check_env() -> Vec<EnvItem> {
+pub fn check_env(app: &AppHandle) -> Vec<EnvItem> {
     vec![
         check_os(),
         check_arch(),
-        check_disk(),
+        check_disk(app),
         check_network(),
         check_admin(),
     ]
@@ -85,11 +88,14 @@ fn check_arch() -> EnvItem {
     }
 }
 
-fn check_disk() -> EnvItem {
+fn check_disk(app: &AppHandle) -> EnvItem {
     #[cfg(windows)]
     {
-        // 用 PowerShell 读系统盘可用空间，避免引入额外依赖
-        let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+        // 检查实际下载目录所在的盘，而非只查系统盘（用户可把下载目录自定义到 D 盘）
+        let dir = crate::cmds::pkg_dir(app)
+            .unwrap_or_else(|_| std::path::PathBuf::from("C:\\"));
+        let drive = drive_of(&dir).unwrap_or_else(|| "C:".to_string());
+        // 用 PowerShell 读磁盘可用空间，避免引入额外依赖
         let script = format!(
             "[math]::Round((Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='{}'\").FreeSpace / 1GB, 1)",
             drive
@@ -115,12 +121,25 @@ fn check_disk() -> EnvItem {
     }
     #[cfg(not(windows))]
     {
+        let _ = app;
         item(
             "disk",
             "磁盘空间",
             "非 Windows 环境，跳过检测".into(),
             "warn",
         )
+    }
+}
+
+/// 取路径所在的盘符（如 `D:`）；非盘符路径返回 None。
+#[cfg(windows)]
+fn drive_of(path: &Path) -> Option<String> {
+    match path.components().next() {
+        Some(std::path::Component::Prefix(p)) => match p.kind() {
+            std::path::Prefix::Disk(d) => Some(format!("{}:", d as char)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 

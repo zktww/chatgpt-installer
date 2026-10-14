@@ -33,6 +33,14 @@ impl AppError {
         )
     }
 
+    pub fn paused() -> Self {
+        Self::new(
+            "PAUSED",
+            "已暂停",
+            "下载已暂停，进度已保留，点击继续可恢复下载。",
+        )
+    }
+
     /// 把 PowerShell / 部署工具的原始输出映射到已知错误码。
     pub fn from_deploy_output(output: &str) -> Self {
         // 注意：先转大写再匹配，模式串必须也是大写（"0x" 会变成 "0X"）
