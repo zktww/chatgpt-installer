@@ -41,9 +41,11 @@ pub struct AppCtx {
 
 /// 原用户的 LOCALAPPDATA（仅跨用户提权时有值）；无值时调用方回退 $env:LOCALAPPDATA。
 pub(crate) fn data_dir_override(app: &AppHandle) -> Option<PathBuf> {
-    app.try_state::<AppCtx>()
-        .and_then(|ctx| ctx.data_dir_override.lock().ok())
-        .and_then(|guard| guard.clone())
+    // 注意：不能用 and_then 链式写法——MutexGuard 会借用闭包内的临时 State，
+    // 出闭包即悬空（E0515）；必须用 if let / let 绑定把 State 留在函数作用域内
+    let ctx = app.try_state::<AppCtx>()?;
+    let guard = ctx.data_dir_override.lock().ok()?;
+    guard.clone()
 }
 
 fn push_log(app: &AppHandle, line: &str) {

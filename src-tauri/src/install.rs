@@ -162,7 +162,7 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
                 "Remove-Item -Recurse -Force {}\\Packages\\OpenAI.Codex_* -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force {}\\OpenAI -ErrorAction SilentlyContinue",
                 base_ps, base_ps
             );
-            if let Err(e) = run_ps(script) {
+            if let Err(e) = run_ps(&script) {
                 warnings.push(format!("清理用户数据：{}", e));
             }
         }
