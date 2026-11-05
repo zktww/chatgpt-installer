@@ -14,7 +14,10 @@ pub const LICENSE_URL: &str = "https://persistent.oaistatic.com/codex-app-prod/C
 pub const EXPECTED_IDENTITY: &str = "OpenAI.Codex";
 /// 商店签名发布者 CN（Microsoft Marketplace 证书链）
 pub const EXPECTED_PUBLISHER_CN: &str = "50BDFD77-8903-4850-9FFE-6E8522F64D5B";
+/// 签名证书颁发者必须属于微软（Microsoft Marketplace CA G xxx, O=Microsoft Corporation）
+pub const EXPECTED_ISSUER_O: &str = "O=Microsoft Corporation";
 /// 包系列名
+#[allow(dead_code)]
 pub const PACKAGE_FAMILY: &str = "OpenAI.Codex_2p2nqsd0c76g0";
 /// 应用用户模型 ID，用于启动已安装的应用
 pub const APP_AUMID: &str = "OpenAI.Codex_2p2nqsd0c76g0!App";

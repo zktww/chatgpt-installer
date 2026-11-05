@@ -2,7 +2,7 @@
 //!
 //! v1 采用社区验证过的可靠路线（Add-AppxPackage），进度以阶段事件呈现。
 //! TODO(v2): 迁移到 PackageManager 原生 API，以获得真实百分比进度。
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
@@ -10,30 +10,39 @@ use tauri::{AppHandle, Emitter};
 use crate::constants::LICENSE_URL;
 use crate::download::download_small_file;
 use crate::errors::AppError;
-
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use crate::ps;
+
+/// 离线授权文件名（整机预置用，放在安装包同目录，安装成功后清理）。
+pub const LICENSE_FILE: &str = "ChatGPT-License.xml";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InstallStage {
     /// 0=准备，1=为当前用户注册，2=为所有用户预置，3=完成
     pub stage: u8,
     pub text: String,
+    /// 本阶段是否被跳过（例如普通权限下不做整机预置）
+    pub skipped: bool,
 }
 
 pub fn emit_stage(app: &AppHandle, stage: u8, text: &str) {
+    emit_stage_ex(app, stage, text, false);
+}
+
+pub fn emit_stage_ex(app: &AppHandle, stage: u8, text: &str, skipped: bool) {
     let _ = app.emit(
         "install-progress",
         InstallStage {
             stage,
             text: text.to_string(),
+            skipped,
         },
     );
 }
 
 /// 确保离线授权文件存在（整机预置需要）。
-pub fn ensure_license(app: &AppHandle, dir: &Path) -> Result<std::path::PathBuf, AppError> {
-    let lic = dir.join("ChatGPT-License.xml");
+pub fn ensure_license(app: &AppHandle, dir: &Path) -> Result<PathBuf, AppError> {
+    let lic = dir.join(LICENSE_FILE);
     if !lic.exists() {
         emit_stage(app, 0, "正在获取离线授权文件…");
         download_small_file(LICENSE_URL, &lic)?;
@@ -44,19 +53,18 @@ pub fn ensure_license(app: &AppHandle, dir: &Path) -> Result<std::path::PathBuf,
 /// 为当前用户注册应用包（一般不需要管理员权限）。
 /// 返回的错误已经过 from_deploy_output 映射，可直接展示。
 #[cfg(windows)]
-pub fn install_for_user(app: &AppHandle, msix: &Path) -> Result<(), AppError> {
+pub fn install_for_user(msix: &Path) -> Result<(), AppError> {
     // 路径用通配符安全引用：Add-AppxPackage -Path 会解释 [ ] 为通配符
-    let ps = format!(
+    let script = format!(
         "Add-AppxPackage -Path {} -ForceTargetApplicationShutdown",
-        ps_quote_literal(&msix.to_string_lossy())
+        ps::quote_literal(&msix.to_string_lossy())
     );
-    let out = run_ps(&ps)?;
+    let out = ps::run(&script)?;
     if !out.status.success() {
         let text = String::from_utf8_lossy(&out.stderr).to_string()
             + &String::from_utf8_lossy(&out.stdout);
         return Err(AppError::from_deploy_output(&text));
     }
-    let _ = app;
     Ok(())
 }
 
@@ -65,19 +73,16 @@ pub fn install_for_user(app: &AppHandle, msix: &Path) -> Result<(), AppError> {
 #[cfg(windows)]
 pub fn provision_all_users(msix: &Path, license: &Path) -> Vec<String> {
     let mut warnings = Vec::new();
-    let ps = format!(
+    let script = format!(
         "Add-AppxProvisionedPackage -Online -PackagePath {} -LicensePath {}",
-        ps_quote_literal(&msix.to_string_lossy()),
-        ps_quote_literal(&license.to_string_lossy())
+        ps::quote_literal(&msix.to_string_lossy()),
+        ps::quote_literal(&license.to_string_lossy())
     );
-    match run_ps(&ps) {
+    match ps::run(&script) {
         Ok(o) if o.status.success() => {}
         Ok(o) => warnings.push(format!(
             "整机预置未成功（不影响当前用户使用）：{}",
-            String::from_utf8_lossy(&o.stderr)
-                .chars()
-                .take(200)
-                .collect::<String>()
+            ps::snippet(&o, 200)
         )),
         Err(e) => warnings.push(format!("整机预置跳过：{}", e)),
     }
@@ -85,7 +90,7 @@ pub fn provision_all_users(msix: &Path, license: &Path) -> Vec<String> {
 }
 
 #[cfg(not(windows))]
-pub fn install_for_user(_app: &AppHandle, _msix: &Path) -> Result<(), AppError> {
+pub fn install_for_user(_msix: &Path) -> Result<(), AppError> {
     Err(AppError::new("UNSUPPORTED_OS", "安装仅支持 Windows", ""))
 }
 
@@ -100,7 +105,7 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
     #[cfg(not(windows))]
     {
         let _ = (app, remove_data);
-        return Err(AppError::new("UNSUPPORTED_OS", "卸载仅支持 Windows", ""));
+        Err(AppError::new("UNSUPPORTED_OS", "卸载仅支持 Windows", ""))
     }
     #[cfg(windows)]
     {
@@ -118,18 +123,12 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
                 InstallStage {
                     stage,
                     text: text.to_string(),
+                    skipped: false,
                 },
             );
-            match run_ps(script) {
+            match ps::run(script) {
                 Ok(o) if o.status.success() => {}
-                Ok(o) => warnings.push(format!(
-                    "{}：{}",
-                    text,
-                    String::from_utf8_lossy(&o.stderr)
-                        .chars()
-                        .take(160)
-                        .collect::<String>()
-                )),
+                Ok(o) => warnings.push(format!("{}：{}", text, ps::snippet(&o, 160))),
                 Err(e) => warnings.push(format!("{}：{}", text, e)),
             }
             stage += 1;
@@ -140,6 +139,7 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
                 InstallStage {
                     stage,
                     text: "正在清理用户数据…".into(),
+                    skipped: false,
                 },
             );
             // 跨用户提权时清理原用户的数据，而非提权用的管理员账号的 $env:LOCALAPPDATA
@@ -162,7 +162,7 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
                 "Remove-Item -Recurse -Force {}\\Packages\\OpenAI.Codex_* -ErrorAction SilentlyContinue; Remove-Item -Recurse -Force {}\\OpenAI -ErrorAction SilentlyContinue",
                 base_ps, base_ps
             );
-            if let Err(e) = run_ps(&script) {
+            if let Err(e) = ps::run(&script) {
                 warnings.push(format!("清理用户数据：{}", e));
             }
         }
@@ -170,50 +170,11 @@ pub fn uninstall_package(app: &AppHandle, remove_data: bool) -> Result<Vec<Strin
     }
 }
 
-#[cfg(windows)]
-fn run_ps(script: &str) -> Result<std::process::Output, AppError> {
-    std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW：不闪黑窗口
-        .output()
-        .map_err(|e| {
-            AppError::new(
-                "PS_FAILED",
-                "无法调用 PowerShell",
-                format!("请确认系统 PowerShell 可用：{}", e),
-            )
-        })
-}
-
-/// PowerShell 双引号字面路径：转义 ` " $ 及通配符 [ ] * ?，确保按字面路径处理。
-/// （单引号字符串里反引号无转义作用，故用双引号；
-/// Windows 文件名本身不允许出现 * ? "，实际要防的是 [ ]。）
-#[cfg(windows)]
-pub(crate) fn ps_quote_literal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        if matches!(c, '"' | '`' | '$' | '[' | ']' | '*' | '?') {
-            out.push('`');
-        }
-        out.push(c);
-    }
-    out.push('"');
-    out
-}
-
 /// 本机已安装的 ChatGPT 版本（Get-AppxPackage）；未安装返回 None。
 #[cfg(windows)]
 pub fn installed_app_version() -> Option<String> {
     let out =
-        run_ps("(Get-AppxPackage -Name 'OpenAI.Codex' | Select-Object -First 1).Version").ok()?;
+        ps::run("(Get-AppxPackage -Name 'OpenAI.Codex' | Select-Object -First 1).Version").ok()?;
     if !out.status.success() {
         return None;
     }

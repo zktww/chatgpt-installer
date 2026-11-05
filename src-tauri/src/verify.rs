@@ -1,4 +1,4 @@
-//! 安装前校验：Authenticode 签名 + 发布者 + 包身份。
+//! 安装前校验：Authenticode 签名 + 发布者 + 颁发者 + 包身份。
 //!
 //! 信任依据是**签名是否有效**，而非哈希比对——
 //! 官方下载地址是固定 latest 指针，版本会变，哈希无法 pin。
@@ -7,12 +7,9 @@ use std::path::Path;
 
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::constants::*;
-
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use crate::errors::AppError;
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,20 +17,43 @@ pub struct VerifyInfo {
     /// "Valid" 等
     pub signature: String,
     pub publisher: String,
+    /// 签名证书颁发者（Microsoft Marketplace CA）
+    pub issuer: String,
     pub identity: String,
     pub version: String,
     pub size: u64,
+}
+
+/// Get-AuthenticodeSignature 的精简结果（一次 PowerShell 调用取全）。
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct SigInfo {
+    #[serde(rename = "Status", default)]
+    status: String,
+    #[serde(rename = "Subject", default)]
+    subject: Option<String>,
+    #[serde(rename = "Issuer", default)]
+    issuer: Option<String>,
+}
+
+/// 证书 DN（如 `CN=xxx, O=yyy`）中是否存在**完全相等**的某个 RDN。
+/// 比 `contains` 更严格：防止 `CN=evil-<GUID>` 这类前后缀拼接混过去。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn dn_has(dn: &str, rdn: &str) -> bool {
+    dn.split(',')
+        .map(str::trim)
+        .any(|p| p.eq_ignore_ascii_case(rdn))
 }
 
 pub fn verify_package(msix_path: &Path) -> Result<VerifyInfo, AppError> {
     #[cfg(not(windows))]
     {
         let _ = msix_path;
-        return Err(AppError::new(
+        Err(AppError::new(
             "UNSUPPORTED_OS",
             "校验仅支持在 Windows 上执行",
             "请在 Windows 10（19041+）/ Windows 11 上运行本程序。",
-        ));
+        ))
     }
     #[cfg(windows)]
     {
@@ -48,33 +68,7 @@ pub fn verify_package(msix_path: &Path) -> Result<VerifyInfo, AppError> {
             ));
         }
 
-        // 1. Authenticode 签名状态（-LiteralPath：路径中的 [ ] 不被当作通配符）
-        let status = ps_text(&format!(
-            "(Get-AuthenticodeSignature -LiteralPath '{}').Status",
-            ps_escape(&msix_path.to_string_lossy())
-        ))?;
-        if status.trim() != "Valid" {
-            return Err(AppError::new(
-                "BAD_SIGNATURE",
-                format!("数字签名无效（{}）", status.trim()),
-                "安装包可能已损坏或被篡改。请删除后重新下载；若反复出现请更换网络环境。",
-            ));
-        }
-
-        // 2. 发布者必须为 OpenAI 的商店发布者标识
-        let subject = ps_text(&format!(
-            "(Get-AuthenticodeSignature -LiteralPath '{}').SignerCertificate.Subject",
-            ps_escape(&msix_path.to_string_lossy())
-        ))?;
-        if !subject.contains(EXPECTED_PUBLISHER_CN) {
-            return Err(AppError::new(
-                "BAD_PUBLISHER",
-                "签名发布者与官方不一致",
-                "为安全起见已中止安装。请确认安装包来自本程序下载的官方地址。",
-            ));
-        }
-
-        // 3. 包身份必须为 OpenAI.Codex（读 MSIX 内清单）
+        // 1. 先读清单（纯本地、毫秒级）：格式不对就不必再启动 PowerShell
         let (identity, version) = read_manifest_identity(msix_path)?;
         if identity != EXPECTED_IDENTITY {
             return Err(AppError::new(
@@ -84,9 +78,59 @@ pub fn verify_package(msix_path: &Path) -> Result<VerifyInfo, AppError> {
             ));
         }
 
+        // 2. 一次 PowerShell 调用取签名状态 / 主体 / 颁发者
+        //    （-LiteralPath：路径中的 [ ] 不被当作通配符）
+        let script = format!(
+            "$s = Get-AuthenticodeSignature -LiteralPath {}; \
+             [pscustomobject]@{{ Status = [string]$s.Status; \
+             Subject = [string]$s.SignerCertificate.Subject; \
+             Issuer = [string]$s.SignerCertificate.Issuer }} | ConvertTo-Json -Compress",
+            crate::ps::quote_single(&msix_path.to_string_lossy())
+        );
+        let raw = crate::ps::text(&script)?;
+        let sig: SigInfo = serde_json::from_str(&raw).map_err(|_| {
+            AppError::new(
+                "BAD_SIGNATURE",
+                "无法读取数字签名信息",
+                format!(
+                    "签名查询返回了无法识别的结果：{}",
+                    raw.chars().take(200).collect::<String>()
+                ),
+            )
+        })?;
+        if sig.status.trim() != "Valid" {
+            return Err(AppError::new(
+                "BAD_SIGNATURE",
+                format!("数字签名无效（{}）", sig.status.trim()),
+                "安装包可能已损坏或被篡改。请删除后重新下载；若反复出现请更换网络环境。",
+            ));
+        }
+
+        // 3. 发布者必须精确等于 OpenAI 的商店发布者标识
+        let subject = sig.subject.unwrap_or_default();
+        if !dn_has(&subject, &format!("CN={}", EXPECTED_PUBLISHER_CN)) {
+            return Err(AppError::new(
+                "BAD_PUBLISHER",
+                "签名发布者与官方不一致",
+                format!("实际发布者：{}。为安全起见已中止安装。", subject),
+            ));
+        }
+
+        // 4. 颁发者必须是微软（Microsoft Marketplace CA）：
+        //    防止其他受信任 CA 给同名 CN 签发的证书混过去
+        let issuer = sig.issuer.unwrap_or_default();
+        if !dn_has(&issuer, EXPECTED_ISSUER_O) {
+            return Err(AppError::new(
+                "BAD_ISSUER",
+                "签名证书颁发者不是微软",
+                format!("实际颁发者：{}。为安全起见已中止安装。", issuer),
+            ));
+        }
+
         Ok(VerifyInfo {
-            signature: status.trim().to_string(),
+            signature: sig.status.trim().to_string(),
             publisher: EXPECTED_PUBLISHER_CN.to_string(),
+            issuer: issuer_cn(&issuer),
             identity,
             version,
             size,
@@ -94,8 +138,18 @@ pub fn verify_package(msix_path: &Path) -> Result<VerifyInfo, AppError> {
     }
 }
 
+/// 取颁发者 DN 里的 CN 部分用于展示（取不到就原样返回）。
+#[cfg_attr(not(windows), allow(dead_code))]
+fn issuer_cn(dn: &str) -> String {
+    dn.split(',')
+        .map(str::trim)
+        .find_map(|p| p.strip_prefix("CN="))
+        .unwrap_or(dn)
+        .to_string()
+}
+
 /// 从 MSIX（zip 格式）中读取 AppxManifest.xml 的 Identity Name / Version。
-fn read_manifest_identity(path: &Path) -> Result<(String, String), AppError> {
+pub(crate) fn read_manifest_identity(path: &Path) -> Result<(String, String), AppError> {
     let file = std::fs::File::open(path)
         .map_err(|e| AppError::new("IO_ERROR", "无法打开安装包", e.to_string()))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|_| {
@@ -116,8 +170,11 @@ fn read_manifest_identity(path: &Path) -> Result<(String, String), AppError> {
     entry
         .read_to_string(&mut xml)
         .map_err(|_| AppError::new("BAD_PACKAGE", "清单文件读取失败", "请重新下载安装包。"))?;
+    parse_identity(&xml)
+}
 
-    let mut reader = Reader::from_str(&xml);
+fn parse_identity(xml: &str) -> Result<(String, String), AppError> {
+    let mut reader = Reader::from_str(xml);
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
@@ -165,22 +222,37 @@ fn read_manifest_identity(path: &Path) -> Result<(String, String), AppError> {
     ))
 }
 
-#[cfg(windows)]
-fn ps_text(script: &str) -> Result<String, AppError> {
-    let out = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW：不闪黑窗口
-        .output()
-        .map_err(|e| {
-            AppError::new(
-                "PS_FAILED",
-                "无法调用 PowerShell",
-                format!("请确认系统 PowerShell 可用：{}", e),
-            )
-        })?;
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn ps_escape(s: &str) -> String {
-    s.replace('\'', "''")
+    #[test]
+    fn dn_exact_match() {
+        let dn = "CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B, O=Foo";
+        assert!(dn_has(dn, "CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B"));
+        assert!(!dn_has(
+            "CN=evil-50BDFD77-8903-4850-9FFE-6E8522F64D5B",
+            "CN=50BDFD77-8903-4850-9FFE-6E8522F64D5B"
+        ));
+        assert!(dn_has(
+            "CN=Microsoft Marketplace CA G 024, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+            EXPECTED_ISSUER_O
+        ));
+    }
+
+    #[test]
+    fn issuer_cn_extracts() {
+        assert_eq!(
+            issuer_cn("CN=Microsoft Marketplace CA G 024, O=Microsoft Corporation"),
+            "Microsoft Marketplace CA G 024"
+        );
+    }
+
+    #[test]
+    fn parses_identity() {
+        let xml = r#"<?xml version="1.0"?><Package><Identity Name="OpenAI.Codex" Version="26.1.2.0" Publisher="CN=x"/></Package>"#;
+        let (n, v) = parse_identity(xml).unwrap();
+        assert_eq!(n, "OpenAI.Codex");
+        assert_eq!(v, "26.1.2.0");
+    }
 }
