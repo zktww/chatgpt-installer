@@ -1,59 +1,52 @@
-//! 权限：检测管理员身份 / 提权重启。
+//! 提权重启。
 //!
 //! 策略：下载与检测阶段保持普通权限（体验最顺），
-//! 仅在安装/卸载瞬间请求一次提权（UAC 只打扰用户一次）。
-//!
-//! 所有子进程调用都加 CREATE_NO_WINDOW，避免 GUI 程序闪黑窗口。
+//! 仅在安装/卸载需要时请求一次提权（UAC 只打扰用户一次）。
+//! 管理员检测见 sys.rs（Win32 API）。
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use crate::errors::AppError;
 
-/// Windows 创建进程标志：不创建控制台窗口。
+/// 以管理员身份启动本程序的新实例（UAC 弹窗），并透传参数。
+///
+/// 同步等待 UAC 结果：
+/// - `Ok(())`：新进程已启动，调用方应随即退出当前进程，由新进程接管；
+/// - `Err(UAC_CANCELLED)`：用户点了「否」或系统拒绝，当前进程继续存活，可重试。
+///
+/// 每个参数按 Windows 命令行规则引用（见 `ps::win_quote_arg`），
+/// 路径含空格、以 `\` 结尾（如 `D:\`）都不会被拆散。
 #[cfg(windows)]
-const NO_WINDOW: u32 = 0x08000000;
-
-/// 是否已具备管理员权限。
-/// 用当前 token 的管理员组成员资格判断，不依赖 LanmanServer 服务
-///（`net session` 在该服务被禁用时会误判为非管理员）。
-#[cfg(windows)]
-pub fn is_admin() -> bool {
-    let out = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-        ])
-        .creation_flags(NO_WINDOW)
-        .output();
-    matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).trim().eq_ignore_ascii_case("true"))
+pub fn restart_elevated(extra_args: &[String]) -> Result<(), AppError> {
+    use crate::ps;
+    let exe = std::env::current_exe()
+        .map_err(|e| AppError::new("ELEVATE_FAILED", "无法定位程序路径", e.to_string()))?;
+    let params = extra_args
+        .iter()
+        .map(|a| ps::win_quote_arg(a))
+        .collect::<Vec<_>>()
+        .join(" ");
+    // Start-Process 在 UAC 被取消时抛异常：用退出码 1223（ERROR_CANCELLED）回传
+    let script = format!(
+        "try {{ Start-Process -FilePath {} -ArgumentList {} -Verb RunAs -ErrorAction Stop; exit 0 }} catch {{ exit 1223 }}",
+        ps::quote_single(&exe.to_string_lossy()),
+        ps::quote_single(&params)
+    );
+    let out = ps::run(&script)?;
+    match out.status.code() {
+        Some(0) => Ok(()),
+        Some(1223) => Err(AppError::uac_cancelled()),
+        _ => Err(AppError::new(
+            "ELEVATE_FAILED",
+            "请求管理员权限失败",
+            ps::snippet(&out, 200),
+        )),
+    }
 }
 
 #[cfg(not(windows))]
-pub fn is_admin() -> bool {
-    false
-}
-
-/// 以管理员身份重启本程序（UAC 弹窗），并透传参数。
-/// 每个参数单独加双引号，避免路径含空格被拆散
-///（Windows 文件名不允许出现 `"`，无需转义引号本身）。
-/// 只负责发起提权，不再无条件退出当前进程：
-/// 用户在 UAC 点"否"时本进程继续存活；提权成功后，新进程凭 --parent-pid 结束掉本进程。
-#[cfg(windows)]
-pub fn restart_elevated(extra_args: &[String]) {
-    let exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from(""));
-    let args = extra_args
-        .iter()
-        .map(|a| format!("\"{a}\""))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let script = format!(
-        "Start-Process -FilePath '{}' -ArgumentList '{}' -Verb RunAs",
-        exe.display().to_string().replace('\'', "''"),
-        args.replace('\'', "''")
-    );
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .creation_flags(NO_WINDOW)
-        .spawn();
+pub fn restart_elevated(_extra_args: &[String]) -> Result<(), AppError> {
+    Err(AppError::new(
+        "UNSUPPORTED_OS",
+        "提权重启仅支持 Windows",
+        "",
+    ))
 }

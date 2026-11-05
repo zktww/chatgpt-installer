@@ -25,6 +25,22 @@ impl AppError {
         )
     }
 
+    pub fn uac_cancelled() -> Self {
+        Self::new(
+            "UAC_CANCELLED",
+            "未获得管理员权限",
+            "系统权限确认窗口被取消或拒绝。点击「重试」可再次请求；如果你的账号不是管理员，请联系电脑管理员。",
+        )
+    }
+
+    pub fn busy() -> Self {
+        Self::new(
+            "BUSY",
+            "下载正在进行中",
+            "请等待当前下载完成或暂停后再操作。",
+        )
+    }
+
     pub fn cancelled() -> Self {
         Self::new(
             "CANCELLED",
@@ -106,7 +122,7 @@ impl AppError {
             "NETWORK_ERROR",
             "网络连接失败",
             format!(
-                "无法连接到官方下载源（{}）。请检查网络/代理后重试，或尝试「换源」。",
+                "无法连接到官方下载源（{}）。请检查网络 / 代理设置后重试，已下载的进度会保留。",
                 detail.into()
             ),
         )
@@ -122,5 +138,40 @@ impl AppError {
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{}] {}", self.code, self.message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_known_deploy_codes_case_insensitively() {
+        assert_eq!(
+            AppError::from_deploy_output("HRESULT: 0x80073d02 ...").code,
+            "0x80073D02"
+        );
+        assert_eq!(
+            AppError::from_deploy_output("error 0x80073CFD").code,
+            "0x80073CFD"
+        );
+        assert_eq!(
+            AppError::from_deploy_output("error 0x80073D06").code,
+            "0x80073D06"
+        );
+    }
+
+    #[test]
+    fn unknown_output_keeps_snippet() {
+        let e = AppError::from_deploy_output("something odd happened");
+        assert_eq!(e.code, "INSTALL_FAILED");
+        assert!(e.hint.contains("something odd happened"));
+    }
+
+    #[test]
+    fn elevation_errors() {
+        assert!(AppError::from_deploy_output("0x80073D28").is_elevation_error());
+        assert!(AppError::from_deploy_output("0x80070005").is_elevation_error());
+        assert!(!AppError::from_deploy_output("0x80073D02").is_elevation_error());
     }
 }

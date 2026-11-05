@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::errors::AppError;
 
-fn default_data_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
+pub(crate) fn default_data_dir(app: &AppHandle) -> Result<PathBuf, AppError> {
     let dir = app
         .path()
         .app_local_data_dir()

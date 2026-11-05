@@ -1,15 +1,47 @@
 name: Build Windows
 
-# 只在打 tag（如 v0.1.0）或手动触发时构建；
-# 日常推送到 main 不再触发，节省构建等待。
+# - check：推送到 main / PR 时做静态检查与单元测试（windows-latest，几分钟内完成）
+# - build：只在打 tag（如 v1.2.0）或手动触发时构建安装包；打 tag 自动创建 Release
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Format
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit tests
+        working-directory: src-tauri
+        run: cargo test
+
   build-windows:
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     permissions:
       contents: write
@@ -25,11 +57,22 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+      # tag 必须与配置里的版本号一致，避免产物文件名 / 文件属性版本对不上
+      - name: Check version matches tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          $conf = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version\s*=\s*"(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($tag -ne $conf -or $tag -ne $cargo) {
+            Write-Error "版本不一致：tag=$tag tauri.conf.json=$conf Cargo.toml=$cargo"
+            exit 1
+          }
 
+      # 用 npm 上的预编译 CLI，省掉每次 cargo install tauri-cli 的数分钟源码编译
       - name: Build Tauri app
-        run: cargo tauri build
+        run: npx --yes @tauri-apps/cli@^2 build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
