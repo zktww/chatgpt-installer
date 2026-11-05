@@ -102,6 +102,23 @@ chatgpt-installer/
 - [ ] 安装器自身自动更新（Tauri updater + GitHub Release）
 - [ ] 英文界面
 
+## 代码签名与隐私声明 (Code Signing & Privacy Policy)
+
+### Code Signing Policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **Committers & Reviewers / Approvers**: [@zktww](https://github.com/zktww)
+- All official release binaries are built exclusively via [GitHub Actions](.github/workflows/build-windows.yml) directly from the public source code in this repository.
+
+### Privacy Policy
+
+**This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.**
+
+- The installer only connects to:
+  1. OpenAI's official desktop distribution CDN (`https://persistent.oaistatic.com/sidekick/public/ChatGPT_Desktop_public_latest.msix`) when checking for updates or when the user initiates a download.
+- No telemetry, analytics, crash reports, or personal data are collected or transmitted to any third-party or developer-controlled servers.
+
 ## 协议
 
 MIT — 可自由使用、修改、分发（含商业用途），详见 [LICENSE](LICENSE)。
