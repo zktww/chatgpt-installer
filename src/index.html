@@ -38,8 +38,17 @@
   <section class="step" data-s="0">
     <div class="hero">
       <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
-        <rect width="64" height="64" rx="16" fill="#10a37f"/>
-        <path d="M32 15l4.2 12.8L49 32l-12.8 4.2L32 49l-4.2-12.8L15 32l12.8-4.2z" fill="#fff"/>
+        <defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#15b890"/>
+            <stop offset="50%" stop-color="#10a37f"/>
+            <stop offset="100%" stop-color="#0b7259"/>
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="15" fill="url(#lg)"/>
+        <rect x=".75" y=".75" width="62.5" height="62.5" rx="14.25" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1.5"/>
+        <path d="M30 13C30 25.5 34.5 30 47 30C34.5 30 30 34.5 30 47C30 34.5 25.5 30 13 30C25.5 30 30 25.5 30 13Z" fill="#fff"/>
+        <path d="M46.5 11.5C46.5 16 48 17.5 52.5 17.5C48 17.5 46.5 19 46.5 23.5C46.5 19 45 17.5 40.5 17.5C45 17.5 46.5 16 46.5 11.5Z" fill="#fff" fill-opacity=".92"/>
       </svg>
       <div>
         <h1>ChatGPT 桌面版安装助手</h1>

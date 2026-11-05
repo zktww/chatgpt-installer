@@ -76,3 +76,74 @@ pub fn free_bytes(dir: &std::path::Path) -> Option<u64> {
 pub fn free_bytes(_dir: &std::path::Path) -> Option<u64> {
     None
 }
+
+/// 显式为主窗口绑定 Win32 大图标（`ICON_BIG`，用于 Windows 11 任务栏与 `Alt+Tab`）
+/// 与小图标（`ICON_SMALL`，用于窗口标题栏），并同步写入窗口类 `GCLP_HICON` / `GCLP_HICONSM`。
+///
+/// 原因：Tauri / `tao` 在 Windows 上创建窗口时仅设置 `ICON_SMALL`，并在 `on_create` 中将
+/// `ICON_BIG` 清零（`WM_SETICON(ICON_BIG, 0)`）且窗口类 `hIcon` 为 NULL，导致独立运行的
+/// `.exe` 在部分 Windows 11 环境下任务栏退化为系统默认空窗口图标。
+#[cfg(windows)]
+pub fn apply_window_icon(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, SetClassLongPtrW, GCLP_HICON, GCLP_HICONSM,
+        ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, LR_SHARED, SM_CXICON, SM_CXSMICON,
+        SM_CYICON, SM_CYSMICON, WM_SETICON,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd_raw = hwnd.0;
+    if hwnd_raw.is_null() {
+        return;
+    }
+
+    // tauri-build 将 icons/icon.ico 以资源 ID 32512 (IDI_APPLICATION) 嵌入 PE .rsrc
+    const APP_ICON_RES_ID: usize = 32512;
+
+    // SAFETY: GetModuleHandleW(NULL) 获取当前进程模块句柄；LoadImageW 带 LR_SHARED 由系统托管生命周期；
+    // SendMessageW / SetClassLongPtrW 针对有效主窗口句柄设置大小图标。
+    unsafe {
+        let hinst = GetModuleHandleW(std::ptr::null());
+        let res_name = APP_ICON_RES_ID as *const u16;
+
+        let big_w = GetSystemMetrics(SM_CXICON).max(32);
+        let big_h = GetSystemMetrics(SM_CYICON).max(32);
+        let small_w = GetSystemMetrics(SM_CXSMICON).max(16);
+        let small_h = GetSystemMetrics(SM_CYSMICON).max(16);
+
+        let hicon_big = LoadImageW(
+            hinst,
+            res_name,
+            IMAGE_ICON,
+            big_w,
+            big_h,
+            LR_DEFAULTCOLOR | LR_SHARED,
+        );
+        let hicon_small = LoadImageW(
+            hinst,
+            res_name,
+            IMAGE_ICON,
+            small_w,
+            small_h,
+            LR_DEFAULTCOLOR | LR_SHARED,
+        );
+
+        if !hicon_big.is_null() {
+            SendMessageW(hwnd_raw, WM_SETICON, ICON_BIG as usize, hicon_big as isize);
+            SetClassLongPtrW(hwnd_raw, GCLP_HICON, hicon_big as isize);
+        }
+        if !hicon_small.is_null() {
+            SendMessageW(
+                hwnd_raw,
+                WM_SETICON,
+                ICON_SMALL as usize,
+                hicon_small as isize,
+            );
+            SetClassLongPtrW(hwnd_raw, GCLP_HICONSM, hicon_small as isize);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn apply_window_icon(_window: &tauri::WebviewWindow) {}

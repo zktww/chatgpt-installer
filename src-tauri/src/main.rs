@@ -107,6 +107,9 @@ fn main() {
                     }
                 }
             }
+            if let Some(w) = app.get_webview_window("main") {
+                sys::apply_window_icon(&w);
+            }
             let handle = app.handle().clone();
             push_log(&handle, &format!("[app] start, resume={:?}", resume_action));
             Ok(())
