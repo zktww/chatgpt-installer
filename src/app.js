@@ -6,7 +6,7 @@
 
 const TAURI = (window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__ : null;
 const DEMO = !TAURI;
-if (DEMO) document.body.classList.add('demo');
+if (DEMO && !location.search.includes('nodemo')) document.body.classList.add('demo');
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
