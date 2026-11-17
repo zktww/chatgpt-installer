@@ -36,7 +36,7 @@ const demo = { dl: 0, total: 786.4 * 1048576, timer: null, dir: 'C:\\Users\\demo
 async function demoInvoke(cmd, args) {
   await sleep(cmd === 'check_env' ? 900 : cmd === 'verify_package' ? 1100 : 300);
   switch (cmd) {
-    case 'app_info': return { version: '1.2.0', arch: 'x86_64', admin: false };
+    case 'app_info': return { version: '1.3.0', arch: 'x86_64', admin: false };
     case 'take_resume_action': return null;
     case 'get_pkg_dir': return demo.dir;
     case 'pick_pkg_dir': throw { code: 'NO_DIALOG', message: '演示模式无系统对话框' };
@@ -83,6 +83,8 @@ async function demoInvoke(cmd, args) {
       note: '发现新版本 v26.1007.2314.0（本机 v1.2025.301.0）' };
     case 'uninstall_package_cmd': throw { code: 'NEED_ELEVATION', message: '需要管理员权限', hint: '' };
     case 'restart_elevated_cmd': throw { code: 'UAC_CANCELLED', message: '未获得管理员权限', hint: '演示模式：模拟用户在 UAC 中点了「否」。' };
+    case 'get_auto_update': return { mode: demo.auto || 'off', task_ok: !!demo.auto && demo.auto !== 'off' };
+    case 'set_auto_update': demo.auto = args.mode; return { mode: args.mode, task_ok: args.mode !== 'off' };
     case 'get_last_log': return '[demo] log line 1\n[demo] log line 2';
     case 'launch_app': case 'exit_app': return null;
   }
@@ -122,7 +124,8 @@ function busy(text) {
 /**
  * 应用内对话框，替代 alert / confirm（WebView2 原生弹窗标题是 “tauri.localhost 显示”）。
  * opts: { title, text, tone: ''|'warn'|'danger', icon, ok, cancel(false=无取消), okClass,
- *         checkbox: '文案', input: { value, placeholder }, validate: async (value) => 错误文本|null }
+ *         checkbox: '文案', input: { value, placeholder }, validate: async (value) => 错误文本|null,
+ *         radios: [{ value, label, desc }], radioValue: 默认选中值 }（有 radios 时 value 为选中值）
  * 返回 Promise<{ ok, checked, value }>
  */
 function dialog(opts) {
@@ -137,6 +140,8 @@ function dialog(opts) {
           <div class="dt">${esc(opts.text || '').replace(/\n/g, '<br>')}
             ${opts.input ? `<input type="text" spellcheck="false" placeholder="${esc(opts.input.placeholder || '')}" value="${esc(opts.input.value || '')}"><div class="derr"></div>` : ''}
             ${opts.checkbox ? `<label class="check"><input type="checkbox"><span>${esc(opts.checkbox)}</span></label>` : ''}
+            ${opts.radios ? `<div class="radios">${opts.radios.map(r => `<label class="radio"><input type="radio" name="dlg-r" value="${esc(r.value)}"${r.value === opts.radioValue ? ' checked' : ''}><span><b>${esc(r.label)}</b>${r.desc ? `<small>${esc(r.desc)}</small>` : ''}</span></label>`).join('')}</div>` : ''}
+            ${opts.note ? `<div class="dnote">${esc(opts.note)}</div>` : ''}
           </div>
         </div>
         <div class="df">
@@ -151,7 +156,8 @@ function dialog(opts) {
     const close = ok => {
       document.removeEventListener('keydown', onKey, true);
       mask.remove();
-      resolve({ ok, checked: !!(cb && cb.checked), value: input ? input.value.trim() : '' });
+      const radio = mask.querySelector('input[type=radio]:checked');
+      resolve({ ok, checked: !!(cb && cb.checked), value: radio ? radio.value : (input ? input.value.trim() : '') });
     };
     const submit = async () => {
       if (opts.validate) {
@@ -656,6 +662,46 @@ $('uninstallBtn').addEventListener('click', async () => {
   if (r.ok) doUninstall(r.checked);
 });
 
+/* ---------------- 定时自动更新（可选） ---------------- */
+const AUTO_LABEL = { off: '自动更新：关', notify: '自动更新：提醒', auto: '自动更新：自动' };
+function renderAutoBtn(info) {
+  const mode = (info && info.mode) || 'off';
+  const broken = mode !== 'off' && info && !info.task_ok;
+  $('autoUpdateBtn').innerHTML = `${icon('clock')}${AUTO_LABEL[mode] || AUTO_LABEL.off}${broken ? '（任务缺失）' : ''}`;
+  $('autoUpdateBtn').dataset.mode = mode;
+}
+async function loadAutoUpdate() {
+  try { renderAutoBtn(await invoke('get_auto_update')); } catch (_) { /* 忽略 */ }
+}
+$('autoUpdateBtn').addEventListener('click', async () => {
+  const cur = $('autoUpdateBtn').dataset.mode || 'off';
+  const r = await dialog({
+    title: '定时检查 ChatGPT 更新', icon: 'clock', ok: '保存',
+    text: '每天中午检查一次 OpenAI 官方版本（电脑当时没开机的话，开机后补查）。',
+    radios: [
+      { value: 'off', label: '关闭', desc: '只在打开本程序时检查' },
+      { value: 'notify', label: '有新版时提醒我', desc: '发现新版会弹出本窗口，由你决定是否更新' },
+      { value: 'auto', label: '自动下载并安装', desc: '后台下载、校验后为当前用户安装；ChatGPT 正在运行或需要管理员权限时改为弹窗提醒，不会强行关闭' },
+    ],
+    radioValue: cur,
+    note: '通过 Windows「任务计划程序」以普通权限运行，可随时在这里关闭。',
+  });
+  if (!r.ok || r.value === cur) return;
+  busy('正在保存…');
+  try {
+    const info = await invoke('set_auto_update', { mode: r.value });
+    busy(false);
+    renderAutoBtn(info);
+    toast(r.value === 'off' ? '已关闭定时检查' : '已开启定时检查');
+  } catch (e) {
+    busy(false);
+    const err = normErr(e);
+    dialog({ title: '设置失败', tone: 'warn', cancel: false, text: `${err.message}\n${err.hint || ''}` });
+  }
+});
+// 计划任务在后台发现新版后弹出窗口：刷新欢迎页的版本状态
+onEvent('auto-update-show', () => { if (S.cur === 0) checkUpdate(true); });
+
 /* ---------------- 启动 ---------------- */
 if (!DEMO) {
   // 桌面应用手感：禁用网页右键菜单（可选中文本的区域除外）
@@ -670,6 +716,7 @@ if (!DEMO) {
     const info = await invoke('app_info');
     if (info && info.version) $('sysreq').textContent += ` · v${info.version}`;
   } catch (_) { /* 忽略 */ }
+  loadAutoUpdate();
   // 提权重启后：主动领取续跑动作（不依赖后端定时推送，避免前端未就绪时丢失）
   try {
     const action = await invoke('take_resume_action');

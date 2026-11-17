@@ -177,7 +177,7 @@ pub fn run_download(app: &AppHandle, url: &str, dest: &Path) -> Result<u64, AppE
 
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
-        // 大文件下载必须禁用 reqwest 默认的 30 秒总超时，否则慢速连接下 800MB 必被掐断；
+        // 大文件下载必须禁用 reqwest 默认的 30 秒总超时，否则慢速连接下 1GB 级安装包必被掐断；
         // 中断后靠断点续传恢复。HEAD 等小请求单独设超时。
         .timeout(None)
         .build()

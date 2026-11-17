@@ -137,3 +137,18 @@ pub fn save_install_record(app: &AppHandle, etag: Option<&str>, version: &str) {
     v["installed_version"] = serde_json::json!(version);
     let _ = write_settings(app, &v);
 }
+
+/// 定时自动更新模式："off" | "notify" | "auto"；未设置或非法值视为 "off"。
+pub fn load_auto_update(app: &AppHandle) -> String {
+    let v = read_settings(app);
+    match v.get("auto_update").and_then(|m| m.as_str()) {
+        Some(m @ ("notify" | "auto")) => m.to_string(),
+        _ => "off".to_string(),
+    }
+}
+
+pub fn save_auto_update(app: &AppHandle, mode: &str) -> Result<(), AppError> {
+    let mut v = read_settings(app);
+    v["auto_update"] = serde_json::json!(mode);
+    write_settings(app, &v)
+}

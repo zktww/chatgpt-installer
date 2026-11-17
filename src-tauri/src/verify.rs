@@ -178,23 +178,23 @@ fn parse_identity(xml: &str) -> Result<(String, String), AppError> {
     let mut buf = Vec::new();
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Empty(e)) | Ok(Event::Start(e)) if e.name().as_ref() == b"Identity" => {
+            Ok(Event::Empty(e)) | Ok(Event::Start(e)) if e.name().into_inner() == "Identity" => {
                 let mut name = String::new();
                 let mut version = String::new();
                 for attr in e.attributes() {
                     let attr = attr.map_err(|_| {
                         AppError::new("BAD_MANIFEST", "清单解析失败", "请重新下载安装包。")
                     })?;
-                    match attr.key.as_ref() {
-                        b"Name" => {
+                    match attr.key.into_inner() {
+                        "Name" => {
                             name = attr
-                                .unescape_value()
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                 .map(|v| v.into_owned())
                                 .unwrap_or_default()
                         }
-                        b"Version" => {
+                        "Version" => {
                             version = attr
-                                .unescape_value()
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                 .map(|v| v.into_owned())
                                 .unwrap_or_default()
                         }

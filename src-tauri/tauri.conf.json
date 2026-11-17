@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ChatGPT 安装助手",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "identifier": "com.github.chatgpt-installer",
   "build": {
     "beforeBuildCommand": "",
@@ -22,15 +22,27 @@
         "center": true,
         "resizable": false,
         "maximizable": false,
-        "decorations": true
+        "decorations": true,
+        "visible": false
       }
     ]
   },
   "bundle": {
     "active": true,
     "category": "Utility",
-    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
     "shortDescription": "ChatGPT Windows 桌面版一键安装助手（官方原包直连）",
-    "targets": ["nsis"]
+    "targets": [
+      "nsis"
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks.nsh",
+        "installMode": "currentUser"
+      }
+    }
   }
 }

@@ -24,8 +24,9 @@ pub const APP_AUMID: &str = "OpenAI.Codex_2p2nqsd0c76g0!App";
 
 /// 最低系统版本（Windows 10 2004）
 pub const MIN_BUILD_NUMBER: u32 = 19041;
-/// 磁盘空间要求：安装包 ~800MB + 展开后 ~1.9GB，预留 3GB
-pub const REQUIRED_DISK_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+/// 下载目录所在盘的空间要求。2026-11 实测安装包 x64 约 1.06GB、ARM64 约 1.17GB，
+/// 安装时还要在系统盘展开；按包体积约 3.5 倍保守预留 4GB（包再变大时需同步调整）。
+pub const REQUIRED_DISK_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 pub fn msix_url_for_arch(arch: &str) -> Option<&'static str> {
     match arch {

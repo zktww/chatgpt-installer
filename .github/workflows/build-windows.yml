@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -46,7 +46,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -73,9 +73,21 @@ jobs:
       - name: Build Tauri app
         run: npx --yes @tauri-apps/cli@^2 build
 
+      # 统一安装包文件名：产品名含中文，Tauri 生成的文件名会变成「ChatGPT._x.y.z_x64-setup.exe」，
+      # 不便于 winget 等渠道引用固定格式的下载地址
+      - name: Normalize installer file name
+        shell: pwsh
+        run: |
+          $ver = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $dir = 'src-tauri/target/release/bundle/nsis'
+          $src = Get-ChildItem $dir -Filter '*-setup.exe' | Select-Object -First 1
+          $dst = "chatgpt-installer_${ver}_x64-setup.exe"
+          if ($src.Name -ne $dst) { Move-Item $src.FullName (Join-Path $dir $dst) -Force }
+          Get-ChildItem $dir
+
       - name: Upload build artifacts
         id: upload-unsigned
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chatgpt-installer-windows
           path: |
@@ -123,7 +135,7 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |

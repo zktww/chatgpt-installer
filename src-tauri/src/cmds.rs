@@ -265,7 +265,9 @@ pub async fn check_env(app: AppHandle) -> Result<Vec<EnvItem>, AppError> {
 
 /// 下载前的准备（后台线程执行，含网络请求）：
 /// 解析目标；本地已有完整包时确认它与云端一致，过期则删掉重新下载。
-fn prepare_download(app: &AppHandle) -> Result<(String, PathBuf, Option<u64>), AppError> {
+pub(crate) fn prepare_download(
+    app: &AppHandle,
+) -> Result<(String, PathBuf, Option<u64>), AppError> {
     let (url, dest) = download::resolve_target(app)?;
     if dest.exists() {
         if download::is_local_stale(&url, &dest) {
@@ -421,7 +423,7 @@ pub async fn verify_package(app: AppHandle) -> Result<VerifyInfo, AppError> {
 
 /* ---------------- 安装 ---------------- */
 
-/// 安装成功后清理安装包相关文件（800MB+），只保留设置与日志。
+/// 安装成功后清理安装包相关文件（约 1GB），只保留设置与日志。
 /// 卸载/重装都不需要这些文件，重装会重新下载。
 fn cleanup_package_files(app: &AppHandle, msix: &Path) {
     let mut files = vec![
@@ -456,7 +458,7 @@ fn record_install(app: &AppHandle, msix: &Path, version: &str) {
 /// 1. 强制安全校验（签名/发布者/包身份），任何入口都必须通过；
 /// 2. 已提权：当前用户注册 + 整机预置；
 /// 3. 未提权：先尝试免提权为当前用户安装，失败且疑似权限问题时才要求提权。
-fn install_flow(app: &AppHandle) -> Result<(), AppError> {
+pub(crate) fn install_flow(app: &AppHandle) -> Result<(), AppError> {
     let msix = msix_path(app)?;
     if !msix.exists() {
         return Err(AppError::new(
@@ -613,7 +615,7 @@ pub async fn check_update(app: AppHandle) -> Result<UpdateCheck, AppError> {
     blocking(move || run_check_update(&app)).await
 }
 
-fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
+pub(crate) fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
     let installed_version = installed_app_version();
     let Some(ver) = installed_version else {
         return Ok(UpdateCheck {
@@ -687,6 +689,23 @@ fn run_check_update(app: &AppHandle) -> Result<UpdateCheck, AppError> {
         has_update,
         note,
     })
+}
+
+/* ---------------- 定时自动更新 ---------------- */
+
+#[tauri::command]
+pub async fn get_auto_update(
+    app: AppHandle,
+) -> Result<crate::autoupdate::AutoUpdateInfo, AppError> {
+    blocking(move || Ok(crate::autoupdate::get(&app))).await
+}
+
+#[tauri::command]
+pub async fn set_auto_update(
+    app: AppHandle,
+    mode: String,
+) -> Result<crate::autoupdate::AutoUpdateInfo, AppError> {
+    blocking(move || crate::autoupdate::set(&app, &mode)).await
 }
 
 /* ---------------- 其他 ---------------- */

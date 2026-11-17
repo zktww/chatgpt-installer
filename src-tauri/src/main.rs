@@ -4,6 +4,7 @@
 //! 本程序不设服务端、不收集任何数据。
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod autoupdate;
 mod cmds;
 mod constants;
 mod download;
@@ -30,8 +31,12 @@ fn main() {
     let mut resume_action: Option<String> = None;
     let mut pkg_dir: Option<PathBuf> = None;
     let mut data_dir: Option<PathBuf> = None;
+    // 计划任务触发的后台检查（见 autoupdate.rs）：窗口保持隐藏
+    let mut auto_update = false;
     for arg in std::env::args().skip(1) {
-        if let Some(v) = arg.strip_prefix("--resume=") {
+        if arg == autoupdate::ARG {
+            auto_update = true;
+        } else if let Some(v) = arg.strip_prefix("--resume=") {
             resume_action = Some(v.to_string());
         } else if let Some(v) = arg.strip_prefix("--pkg-dir=") {
             if !v.is_empty() {
@@ -53,12 +58,13 @@ fn main() {
     #[cfg(windows)]
     {
         if resume_action.is_none() {
-            builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.unminimize();
-                    let _ = w.show();
-                    let _ = w.set_focus();
+            builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+                // 计划任务撞上已打开的窗口：已有实例在跑，什么都不用做
+                if argv.iter().any(|a| a == autoupdate::ARG) {
+                    return;
                 }
+                // 用户手动打开：聚焦已有窗口（自动模式的隐藏实例也会就此弹出并保持运行）
+                autoupdate::show_main(app);
             }));
         }
     }
@@ -86,6 +92,8 @@ fn main() {
             pick_pkg_dir,
             exit_app,
             check_update,
+            get_auto_update,
+            set_auto_update,
         ])
         .setup(move |app| {
             if let Some(ctx) = app.try_state::<AppCtx>() {
@@ -109,9 +117,25 @@ fn main() {
             }
             if let Some(w) = app.get_webview_window("main") {
                 sys::apply_window_icon(&w);
+                // 窗口在配置里默认隐藏（visible=false），普通启动时才显示，
+                // 这样计划任务触发的后台检查不会闪出窗口
+                if !auto_update {
+                    let _ = w.show();
+                }
             }
             let handle = app.handle().clone();
-            push_log(&handle, &format!("[app] start, resume={:?}", resume_action));
+            push_log(
+                &handle,
+                &format!(
+                    "[app] start, resume={:?} auto={}",
+                    resume_action, auto_update
+                ),
+            );
+            if auto_update {
+                std::thread::spawn(move || autoupdate::run(&handle));
+            } else {
+                std::thread::spawn(move || autoupdate::refresh_on_startup(&handle));
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

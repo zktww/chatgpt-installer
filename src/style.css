@@ -301,6 +301,16 @@ footer {
 .dialog .derr { color: var(--err); font-size: 12px; margin-top: 6px; min-height: 16px; }
 .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; color: var(--fg); cursor: pointer; }
 .check input { margin-top: 3px; accent-color: var(--err); }
+.radios { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.radio {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg2);
+}
+.radio:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--bg)); }
+.radio input { margin-top: 4px; accent-color: var(--brand); }
+.radio b { display: block; color: var(--fg); font-weight: 600; font-size: 13px; }
+.radio small { display: block; color: var(--fg2); font-size: 12px; line-height: 1.55; margin-top: 2px; }
+.dialog .dnote { margin-top: 10px; font-size: 12px; color: var(--fg2); opacity: .85; }
 .dialog .df {
   display: flex; justify-content: flex-end; gap: 10px; padding: 14px 24px;
   background: var(--bg2); border-top: 1px solid var(--line);

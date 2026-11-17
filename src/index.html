@@ -26,6 +26,7 @@
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol>
 </svg>
 
@@ -58,11 +59,12 @@
     <div class="feat">
       <div class="f"><div class="fi"><svg class="ic"><use href="#i-cloud"/></svg></div><b>官方原包直连</b><p>从 OpenAI 官方 CDN 下载，不做任何二次打包或修改</p></div>
       <div class="f"><div class="fi"><svg class="ic"><use href="#i-shield"/></svg></div><b>安装前验签</b><p>校验数字签名、发布者与颁发者，来源可验证</p></div>
-      <div class="f"><div class="fi"><svg class="ic"><use href="#i-resume"/></svg></div><b>断点续传</b><p>约 800MB 安装包，断网或关闭后可从断点继续</p></div>
+      <div class="f"><div class="fi"><svg class="ic"><use href="#i-resume"/></svg></div><b>断点续传</b><p>约 1GB 安装包，断网或关闭后可从断点继续</p></div>
     </div>
     <div class="meta">
       <span id="sysreq">Windows 10 19041+ / 11 · x64 / ARM64 · MIT 开源</span>
       <span class="grow"></span>
+      <button class="link" id="autoUpdateBtn" data-mode="off"><svg class="ic"><use href="#i-clock"/></svg>自动更新：关</button>
       <button class="link" id="checkUpdateBtn"><svg class="ic"><use href="#i-refresh"/></svg>检查更新</button>
       <button class="link" id="uninstallBtn"><svg class="ic"><use href="#i-trash"/></svg>卸载</button>
     </div>

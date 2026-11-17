@@ -1,8 +1,8 @@
 [package]
 name = "chatgpt-installer"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.90"
 description = "ChatGPT Windows 桌面版一键安装助手（开源、纯客户端）"
 license = "MIT"
 
@@ -15,19 +15,22 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# blocking 模式：下载逻辑写在独立线程里，保持简单
-reqwest = { version = "0.12", features = ["blocking", "rustls-tls"] }
+# blocking 模式：下载逻辑写在独立线程里，保持简单。
+# TLS 用系统自带的 SChannel（native-tls）：无需编译 C 依赖，信任系统证书库（企业代理环境更友好）；
+# system-proxy：自动使用 Windows 系统代理设置
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "native-tls", "http2", "system-proxy"] }
 # 解析 MSIX（本质是 zip）内的 AppxManifest.xml，核验包身份
-zip = "2"
-quick-xml = "0.37"
+# 只需读取 deflate 压缩的清单，关掉默认的 bzip2/zstd/lzma 等（省体积、免 C 依赖）
+zip = { version = "9", default-features = false, features = ["deflate"] }
+quick-xml = "0.42"
 
 [target.'cfg(windows)'.dependencies]
 # 读系统版本号（CurrentBuildNumber）
-winreg = "0.55"
+winreg = "0.56"
 # 单实例：防止双开同时写同一个下载分片
 tauri-plugin-single-instance = "2"
 # 原生 Win32 API：管理员检测 / 原生架构 / 磁盘空间，替代 PowerShell 冷启动（每次 0.5~2s）
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
