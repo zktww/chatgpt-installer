@@ -2,7 +2,7 @@
 
 直连 OpenAI 官方源，在 Windows 上一键**下载、验签、安装与更新**官方 ChatGPT 桌面客户端的开源小工具——**无需打开微软商店，告别区域限制与商店版本滞后**。
 
-![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20(x64%20%26%20ARM64)-blue) ![Size](https://img.shields.io/badge/便携版-~7MB%20单文件-10a37f)
+![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20(x64%20%26%20ARM64)-blue) ![Size](https://img.shields.io/badge/便携版-~6MB%20单文件-10a37f)
 
 ![应用截图](docs/screenshot-home.png)
 
@@ -44,7 +44,7 @@
   - 仅在系统禁用旁加载（`0x80073CFD`）或策略受限时，才请求一次管理员提权，自动开启系统旁加载策略并完成整机预置（`Add-AppxProvisionedPackage`）；
   - **支持企业/标准用户跨账号提权**：当普通用户借用另一个管理员账号通过 UAC 提权时，自动透传原用户的包路径与 `%LOCALAPPDATA%`，避免在管理员账户下重复下载 1 GB 安装包。
 - **一键干净卸载**：内置卸载功能，可自由选择「仅卸载程序（保留登录态与聊天记录）」或「彻底卸载并清理 `%LOCALAPPDATA%` 下的应用数据」。
-- **轻量原生体验**：便携版约 7 MB 单文件 `.exe`（安装版约 2.5 MB），零前端框架依赖；管理员检测、CPU 架构、磁盘空间查询全部调用原生 Win32 API 毫秒级完成，并完美适配 Windows 11 浅色 / 深色主题与高清任务栏图标。
+- **轻量原生体验**：便携版约 6 MB 单文件 `.exe`（安装版约 2 MB），零前端框架依赖；管理员检测、CPU 架构、磁盘空间查询全部调用原生 Win32 API 毫秒级完成，并完美适配 Windows 11 浅色 / 深色主题与高清任务栏图标。
 
 ### 5. 可选的定时自动更新（默认关闭）
 欢迎页点击「自动更新」即可选择：
